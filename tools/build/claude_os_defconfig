@@ -60,5 +60,31 @@ BR2_PACKAGE_UTIL_LINUX_HWCLOCK=y
 BR2_PACKAGE_PYTHON3=y
 BR2_PACKAGE_PYTHON3_SSL=y
 
+# --- Display / Wayland / Compositor ---
+
+# Wayland protocol libraries
+BR2_PACKAGE_WAYLAND=y
+BR2_PACKAGE_WAYLAND_PROTOCOLS=y
+
+# Mesa (software rendering via llvmpipe — no GPU driver needed in QEMU)
+BR2_PACKAGE_MESA3D=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SWRAST=y
+BR2_PACKAGE_MESA3D_OPENGL_EGL=y
+BR2_PACKAGE_MESA3D_OPENGL_ES=y
+
+# libinput (input device handling for keyboard/mouse/touch)
+BR2_PACKAGE_LIBINPUT=y
+BR2_PACKAGE_LIBEVDEV=y
+BR2_PACKAGE_MTDEV=y
+
+# DRM libraries (userspace DRM access)
+BR2_PACKAGE_LIBDRM=y
+
+# Pixman (software pixel manipulation, used by wlroots)
+BR2_PACKAGE_PIXMAN=y
+
+# XKB (keyboard layout handling for Wayland)
+BR2_PACKAGE_LIBXKBCOMMON=y
+
 # Firmware for QEMU virtual WiFi
 BR2_PACKAGE_LINUX_FIRMWARE=y

@@ -22,6 +22,7 @@ Architecture:
     └──────────────────────────────┘
 """
 
+import asyncio
 import ctypes
 import logging
 import os
@@ -101,60 +102,117 @@ class Compositor:
         self._on_app_launch = None
         self._on_display_power = None
 
-        # Wayland display/backend (set during init)
+        # Backend state (set during init)
         self._wl_display = None
         self._backend = None
-        self._renderer = None
-        self._allocator = None
+        self._renderer_obj = None
+        self._wayland_server = None
+        self._running = False
 
         logger.info("Compositor created: %dx%d @ %.1fx scale",
                      self.config.width, self.config.height, self.config.scale)
 
     def initialize(self):
         """
-        Initialize the Wayland display and wlroots backend.
+        Initialize the Wayland display, renderer, and protocol server.
 
-        This sets up:
-        - Wayland display socket
-        - wlroots backend (DRM/KMS for real hardware, headless for testing)
-        - Renderer (GLES2 or Pixman)
-        - Output configuration
-        - Input device handling
+        Sets up:
+        - Display renderer (DRM/framebuffer/headless)
+        - Wayland protocol server (Unix socket for clients)
+        - Input event handling
         """
         logger.info("Initializing Wayland compositor...")
 
-        try:
-            self._init_wlroots()
-        except (ImportError, OSError):
-            logger.warning("wlroots not available, using stub backend")
-            self._init_stub()
+        # Initialize display renderer
+        from renderer import CompositorRenderer
+        self._renderer_obj = CompositorRenderer()
+        display_info = self._renderer_obj.initialize(
+            width=self.config.width, height=self.config.height,
+        )
+        self._backend = display_info.get("backend", "unknown")
 
-        # Set the Wayland display socket name for clients
+        # Initialize Wayland server
+        from wayland_server import WaylandServer
+        self._wayland_server = WaylandServer()
+        socket_path = self._wayland_server.start()
+
+        self._wayland_server.set_callbacks(
+            on_created=self._on_client_surface_created,
+            on_committed=self._on_client_surface_committed,
+            on_destroyed=self._on_client_surface_destroyed,
+        )
+
+        # Set Wayland display name for clients
         socket_name = self._get_socket_name()
         os.environ["WAYLAND_DISPLAY"] = socket_name
-        logger.info("Wayland socket: %s", socket_name)
 
-    def _init_wlroots(self):
-        """Initialize real wlroots backend."""
-        # This would use cffi/ctypes bindings to libwlroots
-        # For now, we document the wlroots API calls that would be made
-
-        # wlr_backend_autocreate() - picks DRM for real HW, headless for CI
-        # wlr_renderer_autocreate() - GLES2 or Pixman
-        # wlr_allocator_autocreate() - GBM or shm
-        # wl_display_create() - create Wayland display
-        # wlr_xdg_shell_create() - handle app windows
-        # wlr_layer_shell_v1_create() - handle overlays (status bar, keyboard)
-        # wlr_seat_create() - input handling (touch, keyboard)
-        # wlr_output_layout_create() - manage physical displays
-
-        raise ImportError("wlroots bindings not yet built")
+        self._wl_display = socket_path
+        logger.info("Compositor initialized: renderer=%s, socket=%s",
+                     self._backend, socket_path)
 
     def _init_stub(self):
         """Initialize stub backend for development/testing."""
         self._wl_display = "stub"
         self._backend = "stub"
+        self._renderer_obj = None
+        self._wayland_server = None
         logger.info("Running with stub compositor backend")
+
+    # --- Wayland Client Callbacks ---
+
+    def _on_client_surface_created(self, client_id: int, client_surface):
+        """Called when a Wayland client creates a new surface."""
+        logger.info("Client %d created surface %d",
+                     client_id, client_surface.surface_id)
+
+    def _on_client_surface_committed(self, client_id: int, client_surface):
+        """Called when a Wayland client commits a surface frame."""
+        from renderer import SurfaceBuffer
+
+        # Find or create compositor surface for this client surface
+        comp_surface = self._find_surface_by_client(
+            client_id, client_surface.surface_id
+        )
+
+        if not comp_surface:
+            # New surface — register it with the compositor
+            comp_surface = self.add_surface(
+                wl_surface=client_surface,
+                app_id=client_surface.app_id or f"client-{client_id}",
+                title=client_surface.title,
+                role=SurfaceRole.APP,
+            )
+            comp_surface.pid = client_id  # Track client ID via pid field
+
+        # Update surface buffer if client has pixel data
+        if client_surface.shm_data:
+            buf = SurfaceBuffer(
+                width=client_surface.width,
+                height=client_surface.height,
+                stride=client_surface.stride,
+                data=client_surface.shm_data,
+            )
+            if self._renderer_obj:
+                self._renderer_obj.attach_buffer(id(comp_surface), buf)
+
+    def _on_client_surface_destroyed(self, client_id: int, client_surface):
+        """Called when a client surface is destroyed."""
+        comp_surface = self._find_surface_by_client(
+            client_id, client_surface.surface_id
+        )
+        if comp_surface:
+            if self._renderer_obj:
+                self._renderer_obj.detach_buffer(id(comp_surface))
+            self.remove_surface(comp_surface)
+
+    def _find_surface_by_client(self, client_id: int, surface_id: int):
+        """Find a compositor surface matching a client surface."""
+        for s in self.surfaces:
+            if (s.pid == client_id and
+                    hasattr(s.wl_surface, 'surface_id') and
+                    s.wl_surface.surface_id == surface_id):
+                return s
+        return None
 
     def _get_socket_name(self) -> str:
         """Get or generate the Wayland socket name."""
@@ -371,31 +429,90 @@ class Compositor:
 
         return render_list
 
+    def composite_frame(self):
+        """
+        Render one full compositor frame using the renderer.
+
+        Calls render_frame() for the surface list, then hands it
+        to the renderer for actual pixel output.
+        """
+        render_list = self.render_frame()
+        if render_list is None:
+            return  # Display off
+
+        if self._renderer_obj:
+            self._renderer_obj.render_frame(render_list)
+
+            # Send frame done to Wayland clients
+            if self._wayland_server:
+                ts = int(time.monotonic() * 1000)
+                self._wayland_server.send_frame_done(ts)
+
     def run(self):
         """
         Run the compositor event loop.
 
-        In production, this calls wl_display_run() which blocks
-        and processes Wayland events + renders frames.
+        Runs the Wayland server, processes input, and renders frames
+        at ~60fps. Uses asyncio for concurrent I/O.
         """
         logger.info("Compositor running")
 
         if self._wl_display == "stub":
-            # Stub: just block until signal
             try:
                 signal.pause()
             except KeyboardInterrupt:
                 pass
+        elif self._wayland_server:
+            asyncio.run(self._main_loop())
         else:
-            # Would call: wl_display_run(self._wl_display)
-            pass
+            try:
+                signal.pause()
+            except KeyboardInterrupt:
+                pass
 
         logger.info("Compositor stopped")
 
+    async def _main_loop(self):
+        """Async main loop — Wayland server + render loop."""
+        frame_time = 1.0 / 60  # 60 FPS target
+        self._running = True
+
+        # Start Wayland server in background
+        server_task = asyncio.create_task(self._wayland_server.run())
+
+        try:
+            while self._running:
+                start = time.monotonic()
+
+                # Render a frame
+                self.composite_frame()
+
+                # Sleep for remainder of frame budget
+                elapsed = time.monotonic() - start
+                sleep_time = frame_time - elapsed
+                if sleep_time > 0:
+                    await asyncio.sleep(sleep_time)
+                else:
+                    await asyncio.sleep(0)  # Yield
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
+        finally:
+            self._running = False
+            server_task.cancel()
+            try:
+                await server_task
+            except asyncio.CancelledError:
+                pass
+
     def destroy(self):
         """Clean up compositor resources."""
+        if hasattr(self, '_wayland_server') and self._wayland_server:
+            self._wayland_server.stop()
+        if hasattr(self, '_renderer_obj') and self._renderer_obj:
+            self._renderer_obj.shutdown()
         self.surfaces.clear()
         self.active_surface = None
+        self._running = False
         logger.info("Compositor destroyed")
 
 

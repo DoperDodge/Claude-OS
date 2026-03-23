@@ -21,7 +21,7 @@ Claude-OS currently boots to a **text-only terminal** in QEMU. The system servic
 - System services start via systemd (WiFi, bridge API, notifications, etc.)
 - Claude chat engine calls the Claude API and handles tool use
 - Bridge API server on localhost:8080
-- 167 tests across 9 modules, **now gated in CI**
+- 205 tests across 12 modules, **now gated in CI**
 - Kernel defconfig pre-configured for GPU/DRM/framebuffer display
 - TLS certificate pinning on API communication
 - `.env`-based API key management for development
@@ -93,16 +93,19 @@ Get pixels on screen. No toolkit, no compositor — just proof that we can draw 
 
 **Deliverable:** QEMU opens a window, a colored rectangle is drawn on screen.
 
-### Phase 2 — Wayland Compositor (Minimal)
+### Phase 2 — Wayland Compositor (Minimal) ✅
 
 Get a real compositor running so we can render application windows.
 
-- [ ] Replace the Python wlroots stub with actual wlroots C bindings (via `pywlroots` or FFI)
-  - Alternative: use a lightweight off-the-shelf compositor (`cage`, `labwc`, or `sway` in kiosk mode)
-- [ ] Add `wlroots`, `wayland`, `libinput`, and `mesa` (for software rendering) to the Buildroot config
-- [ ] Compositor launches on boot and displays a solid background color
-- [ ] Verify a Wayland client can connect and render a window
-- [ ] Mouse/keyboard input passes through from QEMU to Wayland clients
+- [x] Replace the Python wlroots stub with real rendering backend (CompositorRenderer → DRM/framebuffer/headless)
+- [x] Implement minimal Wayland protocol server (wl_display, wl_compositor, wl_surface, wl_shm, xdg_shell)
+- [x] Add `wayland`, `mesa` (llvmpipe), `libinput`, `libdrm`, `pixman`, `libxkbcommon` to Buildroot config
+- [x] Compositor launches on boot and displays a solid background color
+- [x] Wayland clients can connect via Unix socket and commit surface buffers
+- [x] Mouse/keyboard input via Linux evdev (virtio-keyboard/mouse from QEMU)
+- [x] Input handler translates mouse clicks to touch events (for phone UI simulation)
+- [x] Headless display backend for testing without hardware
+- [x] 38 new tests (renderer, Wayland server, input handler) — 205 total
 
 **Deliverable:** Compositor runs, Wayland clients can render, input works.
 
@@ -335,8 +338,8 @@ Move beyond QEMU to a physical phone.
 - [x] Security: TLS pinning integrated into chat engine, module init, bug fixes
 
 ### Milestone 6 — Visual OS 🚧 **← IN PROGRESS**
-- [x] Framebuffer / GPU display in QEMU (Phase 1 complete)
-- [ ] Working Wayland compositor
+- [x] Framebuffer / GPU display in QEMU (Phase 1)
+- [x] Working Wayland compositor (Phase 2)
 - [ ] UI toolkit and widget system
 - [ ] Lock screen, home screen, status bar
 - [ ] On-screen keyboard
@@ -415,7 +418,7 @@ Claude-OS/
 │   ├── files/                # File manager
 │   ├── browser/              # Web browser
 │   └── terminal/             # Terminal emulator
-├── tests/                    # Test suite (pytest, 167 tests)
+├── tests/                    # Test suite (pytest, 205 tests)
 ├── tools/                    # Build scripts and dev utilities
 │   ├── build/                # Buildroot config, rootfs overlay
 │   ├── emulator/             # QEMU configs
