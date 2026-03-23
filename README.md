@@ -142,12 +142,12 @@ The project is broken into milestones. Each milestone produces a testable artifa
 - [x] Secure bridge API between Claude app and system services
 - [x] Claude can query and control WiFi through the bridge
 
-### Milestone 5 — Core OS Services (partial)
+### Milestone 5 — Core OS Services ✅
 - [x] Power management (suspend, wake, shutdown)
 - [x] Audio playback and microphone access
-- [ ] Storage management and file system access
-- [ ] Basic app lifecycle management (launch, suspend, kill)
-- [ ] Notification system
+- [x] Storage management and file system access
+- [x] Basic app lifecycle management (launch, suspend, kill)
+- [x] Notification system
 
 ### Milestone 6 — Security & Privacy (partial)
 - [ ] Encrypted storage (LUKS or dm-crypt)

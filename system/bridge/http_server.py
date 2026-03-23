@@ -76,6 +76,45 @@ class HTTPServer:
         self.add_route("POST", "/api/audio/mute", audio.handle_mute,
                        permission="audio.volume")
 
+        # Storage routes
+        storage = self.bridge.storage
+        self.add_route("GET", "/api/storage/usage", storage.handle_usage)
+        self.add_route("GET", "/api/storage/dirs", storage.handle_user_dirs)
+        self.add_route("POST", "/api/storage/list", storage.handle_list_files,
+                       permission="files.read")
+        self.add_route("POST", "/api/storage/read", storage.handle_read_file,
+                       permission="files.read")
+        self.add_route("POST", "/api/storage/write", storage.handle_write_file,
+                       permission="files.write")
+        self.add_route("POST", "/api/storage/delete", storage.handle_delete_file,
+                       permission="files.write")
+
+        # App lifecycle routes
+        apps = self.bridge.apps
+        self.add_route("GET", "/api/apps/running", apps.handle_list_running)
+        self.add_route("GET", "/api/apps/installed", apps.handle_list_installed)
+        self.add_route("POST", "/api/apps/info", apps.handle_app_info)
+        self.add_route("POST", "/api/apps/launch", apps.handle_launch,
+                       permission="apps.launch")
+        self.add_route("POST", "/api/apps/kill", apps.handle_kill,
+                       permission="apps.kill")
+        self.add_route("POST", "/api/apps/suspend", apps.handle_suspend,
+                       permission="apps.manage")
+        self.add_route("POST", "/api/apps/resume", apps.handle_resume,
+                       permission="apps.manage")
+        self.add_route("POST", "/api/apps/switch", apps.handle_switch)
+
+        # Notification routes
+        notifs = self.bridge.notifications
+        self.add_route("POST", "/api/notifications/post", notifs.handle_post)
+        self.add_route("GET", "/api/notifications/all", notifs.handle_get_all)
+        self.add_route("GET", "/api/notifications/unread", notifs.handle_get_unread)
+        self.add_route("GET", "/api/notifications/summary", notifs.handle_summary)
+        self.add_route("POST", "/api/notifications/read", notifs.handle_mark_read)
+        self.add_route("POST", "/api/notifications/dismiss", notifs.handle_dismiss)
+        self.add_route("POST", "/api/notifications/dismiss-all", notifs.handle_dismiss_all)
+        self.add_route("POST", "/api/notifications/dnd", notifs.handle_dnd)
+
         # Meta routes
         self.add_route("GET", "/api/health", self._handle_health)
         self.add_route("GET", "/api/permissions", self._handle_permissions)

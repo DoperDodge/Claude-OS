@@ -25,6 +25,9 @@ from services.wifi import WiFiBridgeService
 from services.system import SystemBridgeService
 from services.power import PowerBridgeService
 from services.audio import AudioBridgeService
+from services.storage import StorageBridgeService
+from services.apps import AppsBridgeService
+from services.notifications import NotificationBridgeService
 from event_bus import EventBus
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -51,6 +54,9 @@ class BridgeServer:
         self.system = SystemBridgeService(self.event_bus)
         self.power = PowerBridgeService(self.event_bus)
         self.audio = AudioBridgeService(self.event_bus)
+        self.storage = StorageBridgeService(self.event_bus)
+        self.apps = AppsBridgeService(self.event_bus)
+        self.notifications = NotificationBridgeService(self.event_bus)
 
         # HTTP server with all routes
         self.http = HTTPServer(self)

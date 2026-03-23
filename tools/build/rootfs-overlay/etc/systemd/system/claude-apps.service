@@ -1,0 +1,13 @@
+[Unit]
+Description=Claude-OS App Lifecycle Manager
+After=claude-bridge.service
+Wants=claude-bridge.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/claude-os/app-manager/app_manager.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

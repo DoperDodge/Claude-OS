@@ -38,6 +38,11 @@ DEFAULT_PERMISSIONS = {
     "audio.volume": {"granted": True, "description": "Adjust volume"},
     "audio.mute": {"granted": True, "description": "Mute/unmute audio"},
 
+    # App management
+    "apps.launch": {"granted": True, "description": "Launch applications"},
+    "apps.kill": {"granted": True, "description": "Kill running applications"},
+    "apps.manage": {"granted": True, "description": "Suspend/resume applications"},
+
     # Sensitive — never granted by default
     "messages.read": {"granted": False, "description": "Read notifications/messages"},
     "location.access": {"granted": False, "description": "Access device location"},
