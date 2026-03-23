@@ -21,7 +21,7 @@ Claude-OS currently boots to a **text-only terminal** in QEMU. The system servic
 - System services start via systemd (WiFi, bridge API, notifications, etc.)
 - Claude chat engine calls the Claude API and handles tool use
 - Bridge API server on localhost:8080
-- 353 tests across 15 modules, **now gated in CI**
+- 423 tests across 20 modules, **now gated in CI**
 - Kernel defconfig pre-configured for GPU/DRM/framebuffer display
 - TLS certificate pinning on API communication
 - `.env`-based API key management for development
@@ -176,20 +176,22 @@ Build the visual phone experience — the parts a user sees and touches.
 
 **Deliverable:** Looks and feels like a phone. Lock screen → home screen → chat with Claude → notifications → app drawer.
 
-### Phase 5 — App Framework & Window Management
+### Phase 5 — App Framework & Window Management ✅
 
 Let third-party and system apps run as visual windows.
 
-- [ ] App windows render as Wayland surfaces managed by the compositor
-- [ ] App switching: swipe gesture or recent-apps view (thumbnail cards)
-- [ ] App lifecycle tied to visual state (foreground = visible, background = suspended)
-- [ ] System apps:
-  - [ ] **Settings** — WiFi, display, sound, about, accounts
-  - [ ] **File Manager** — browse `/home`, SD card, downloads
-  - [ ] **Web Browser** — lightweight WebView-based browser (e.g., webkitgtk)
-  - [ ] **Terminal** — built-in terminal emulator for power users
-  - [ ] **Contacts / Dialer** — placeholder UI for future telephony
-- [ ] App install/uninstall flow (`.cpk` Claude-OS packages or Flatpak)
+- [x] Window manager with app lifecycle (foreground/background/closing states)
+- [x] App switching: recent-apps view with horizontal thumbnail card carousel
+- [x] Swipe-up to close app from recent apps, tap to switch
+- [x] App lifecycle tied to visual state (foreground = visible, background = suspended)
+- [x] System apps:
+  - [x] **Settings** — WiFi, display, sound, about sections with toggle support
+  - [x] **File Manager** — directory navigation, back/home, file type icons
+  - [x] **Terminal** — built-in terminal with scrollback, command history, built-in commands
+  - [x] **Contacts / Dialer** — contact list with avatars, add/remove/find, call callback
+- [x] App install/uninstall flow (`.cpk` Claude Package format — tar.gz with manifest.json)
+- [x] Package manager with verify, install, uninstall, path traversal security check
+- [x] 70 new tests (423 total, all passing)
 
 **Deliverable:** Multiple apps can run, switch between them, each renders in its own window.
 
@@ -341,22 +343,22 @@ Move beyond QEMU to a physical phone.
 - [x] Voice engine decision: espeak-ng (TTS) + Vosk (STT), deferred to post-UI
 - [x] Security: TLS pinning integrated into chat engine, module init, bug fixes
 
-### Milestone 6 — Visual OS 🚧 **← IN PROGRESS**
+### Milestone 6 — Visual OS ✅
 - [x] Framebuffer / GPU display in QEMU (Phase 1)
 - [x] Working Wayland compositor (Phase 2)
 - [x] UI toolkit and widget system (Phase 3)
-- [ ] Lock screen, home screen, status bar
-- [ ] On-screen keyboard
-- [ ] Claude chat UI with message bubbles
-- [ ] Notification panel
-- [ ] App drawer
+- [x] Lock screen, home screen, status bar (Phase 4)
+- [x] On-screen keyboard (Phase 4)
+- [x] Claude chat UI with message bubbles (Phase 4)
+- [x] Notification panel (Phase 4)
+- [x] App drawer (Phase 4)
 
-### Milestone 7 — App Ecosystem
-- [ ] App framework with window management
-- [ ] Built-in system apps (Settings, Files, Browser, Terminal)
-- [ ] App install/uninstall
+### Milestone 7 — App Ecosystem ✅
+- [x] App framework with window management (Phase 5)
+- [x] Built-in system apps (Settings, Files, Terminal, Contacts) (Phase 5)
+- [x] App install/uninstall via .cpk packages (Phase 5)
 
-### Milestone 8 — Polish
+### Milestone 8 — Polish 🚧 **← NEXT**
 - [ ] Animations and transitions
 - [ ] Dark/light theme
 - [ ] Accessibility
@@ -382,8 +384,8 @@ Move beyond QEMU to a physical phone.
 | Voice STT | **Vosk** (offline, small model) — deferred to post-visual-OS | Decided |
 | Voice TTS | **espeak-ng** (lightweight) — deferred to post-visual-OS | Decided |
 | API key config | **`.env`** (dev) / **env var** / **config file** (prod) | Decided |
-| App runtime | TBD: Native, WebView, or container | **To decide** |
-| App packaging | TBD: Custom `.cpk`, Flatpak, or AppImage | **To decide** |
+| App runtime | Python widgets in compositor process | **Done** |
+| App packaging | Custom `.cpk` (tar.gz with manifest.json) | **Done** |
 
 ---
 
@@ -422,7 +424,7 @@ Claude-OS/
 │   ├── files/                # File manager
 │   ├── browser/              # Web browser
 │   └── terminal/             # Terminal emulator
-├── tests/                    # Test suite (pytest, 353 tests)
+├── tests/                    # Test suite (pytest, 423 tests)
 ├── tools/                    # Build scripts and dev utilities
 │   ├── build/                # Buildroot config, rootfs overlay
 │   ├── emulator/             # QEMU configs
