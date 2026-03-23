@@ -156,12 +156,12 @@ The project is broken into milestones. Each milestone produces a testable artifa
 - [x] Permission system — Claude must request user approval for sensitive actions
 - [x] All Claude API communication over TLS with certificate pinning
 
-### Milestone 7 — Polish & Usability
-- [ ] OTA update system
-- [ ] Crash reporting and diagnostics
-- [ ] Battery optimization
-- [ ] Accessibility features
-- [ ] User onboarding flow
+### Milestone 7 — Polish & Usability ✅
+- [x] OTA update system
+- [x] Crash reporting and diagnostics
+- [x] Battery optimization
+- [x] Accessibility features
+- [x] User onboarding flow
 
 ---
 
