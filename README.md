@@ -53,7 +53,7 @@ Full WiFi support so the device can connect to the internet — the foundation f
 - [x] Support WPA2-Personal, WPA3-Personal, and open networks
 
 #### Phase 2 — Claude-Driven WiFi Management
-- [ ] Allow Claude to scan, list, and connect to WiFi networks via natural language
+- [x] Allow Claude to scan, list, and connect to WiFi networks via natural language
   - *"Connect me to the coffee shop WiFi"*
   - *"What networks are available?"*
   - *"Forget the hotel network"*
@@ -79,7 +79,7 @@ The Claude mobile app serves as both the main user interface and the AI brain of
 - [x] Full-screen chat interface as the default home screen
 - [x] Voice input/output support (wake word: *"Hey Claude"*)
 - [x] Persistent background service for always-on AI availability
-- [ ] Notification tray integration — Claude can read, summarize, and act on notifications
+- [x] Notification tray integration — Claude can read, summarize, and act on notifications
 
 #### Phase 2 — System Integration
 - [x] Claude ↔ OS bridge: a secure API layer that lets Claude:
@@ -115,10 +115,10 @@ The project is broken into milestones. Each milestone produces a testable artifa
 - [x] Set up CI/CD pipeline for automated builds
 - [x] Create emulator/simulator setup for development without physical hardware
 
-### Milestone 1 — Minimal Bootable System (partial)
+### Milestone 1 — Minimal Bootable System ✅
 - [x] Boot to a minimal Linux environment on target hardware / emulator
-- [ ] Framebuffer or DRM-based display output
-- [ ] Touchscreen input driver
+- [x] Framebuffer or DRM-based display output
+- [x] Touchscreen input driver
 - [x] Basic shell access over USB/serial for debugging
 
 ### Milestone 2 — WiFi Connectivity ✅
@@ -199,6 +199,7 @@ Claude-OS/
 │   ├── chat/                 # Chat interface
 │   ├── voice/                # Voice input/output
 │   └── tools/                # System tool integrations
+├── tests/                    # Test suite (pytest)
 ├── tools/                    # Build scripts, CI, and dev utilities
 │   ├── build/                # Cross-compilation and image building
 │   ├── emulator/             # QEMU / emulator configs
