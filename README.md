@@ -169,8 +169,8 @@ The project is broken into milestones. Each milestone produces a testable artifa
 
 | Decision | Options Under Consideration | Status |
 |---|---|---|
-| Target hardware | PinePhone, Google Pixel (custom ROM), QEMU emulator | TBD |
-| Base system | Buildroot, Yocto, Alpine, postmarketOS | TBD |
+| Target hardware | **QEMU ARM64 emulator** (PinePhone later) | **Decided** |
+| Base system | **Buildroot** (minimal, fast, customizable) | **Decided** |
 | UI framework | Flutter (Dart), LVGL (C), custom Wayland compositor | TBD |
 | Display server | Wayland (wlroots) vs direct framebuffer | TBD |
 | IPC mechanism | D-Bus, gRPC, Unix sockets | TBD |
@@ -211,14 +211,22 @@ Claude-OS/
 
 ---
 
-## Getting Started (Coming Soon)
+## Getting Started
 
-Development hasn't started yet. Once Milestone 0 is complete, this section will contain:
+See [docs/setup.md](docs/setup.md) for full instructions. Quick start:
 
-1. Hardware and software prerequisites
-2. How to set up the build environment
-3. How to build and flash the OS image
-4. How to run in an emulator
+```bash
+# Install dependencies (Ubuntu/Debian)
+sudo apt-get install build-essential gcc-aarch64-linux-gnu qemu-system-aarch64 \
+    libncurses-dev unzip bc cpio rsync wget curl python3 file
+
+# Build the OS
+make setup    # Downloads Buildroot
+make build    # Compiles everything (~30-60 min first time)
+
+# Run in QEMU
+make run      # Boots Claude-OS in a virtual ARM64 machine
+```
 
 ---
 

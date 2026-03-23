@@ -1,0 +1,21 @@
+# Build output
+output/
+buildroot/
+buildroot-*.tar.gz
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/

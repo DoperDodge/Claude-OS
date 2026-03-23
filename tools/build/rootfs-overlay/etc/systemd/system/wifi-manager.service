@@ -1,0 +1,15 @@
+[Unit]
+Description=Claude-OS WiFi Manager
+After=network-pre.target systemd-udevd.service dbus.service
+Before=network.target
+Wants=network.target
+
+[Service]
+Type=dbus
+BusName=org.claude_os.wifi
+ExecStart=/usr/bin/claude-wifi-manager
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,71 @@
+name: Build Claude-OS
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            gcc-aarch64-linux-gnu \
+            qemu-system-aarch64 \
+            libncurses-dev \
+            unzip \
+            bc \
+            cpio \
+            rsync \
+            wget \
+            python3 \
+            file
+
+      - name: Cache Buildroot downloads
+        uses: actions/cache@v4
+        with:
+          path: output/build
+          key: buildroot-${{ hashFiles('tools/build/claude_os_defconfig') }}
+          restore-keys: buildroot-
+
+      - name: Setup Buildroot
+        run: make setup
+
+      - name: Build OS image
+        run: make build
+
+      - name: Upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-os-images
+          path: |
+            output/images/Image
+            output/images/rootfs.ext4
+          retention-days: 14
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Shellcheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          find . -name "*.sh" -exec shellcheck {} +
+
+      - name: Python lint
+        run: |
+          pip3 install flake8
+          find . -name "*.py" -exec flake8 --max-line-length=100 {} + || true
