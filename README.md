@@ -21,7 +21,7 @@ Claude-OS currently boots to a **text-only terminal** in QEMU. The system servic
 - System services start via systemd (WiFi, bridge API, notifications, etc.)
 - Claude chat engine calls the Claude API and handles tool use
 - Bridge API server on localhost:8080
-- 205 tests across 12 modules, **now gated in CI**
+- 272 tests across 13 modules, **now gated in CI**
 - Kernel defconfig pre-configured for GPU/DRM/framebuffer display
 - TLS certificate pinning on API communication
 - `.env`-based API key management for development
@@ -109,20 +109,18 @@ Get a real compositor running so we can render application windows.
 
 **Deliverable:** Compositor runs, Wayland clients can render, input works.
 
-### Phase 3 — UI Toolkit & Basic Rendering
+### Phase 3 — UI Toolkit & Basic Rendering ✅
 
 Build the foundation for drawing actual UI elements (buttons, text, layouts).
 
-- [ ] Choose a UI rendering approach:
-  - **Option A:** Python + Cairo/Pango (draw to Wayland buffers directly)
-  - **Option B:** GTK4 with Wayland backend (heavier but full widget set)
-  - **Option C:** LVGL (lightweight, designed for embedded, C-based)
-  - **Option D:** Flutter for Embedded Linux (Dart, GPU-accelerated)
-- [ ] Implement a base `Widget` class with layout, drawing, and input handling
-- [ ] Core widgets: `Label`, `Button`, `TextInput`, `ScrollView`, `Container`
-- [ ] Font rendering with a system font (e.g., Noto Sans)
-- [ ] Theme system with colors, spacing, and typography constants
-- [ ] Touch/click event propagation through the widget tree
+- [x] Chose **Option A: Pure Python software rendering** — zero external deps, draws to BGRA pixel buffers
+- [x] Base `Widget` class with flex layout, drawing, hit testing, and event propagation
+- [x] Core widgets: `Container` (flex row/col), `Label`, `Button`, `TextInput`, `ScrollView`, `Spacer`, `Divider`, `Image`
+- [x] Built-in 8x8 bitmap font covering full ASCII (0x20-0x7E), auto-scaled to any size, with word wrapping
+- [x] Theme system: `Colors` (Claude orange palette), `Spacing`, `Typography` scale, `Radius`, `FontStyle`
+- [x] Touch/click event propagation through widget tree with hit testing and tap callbacks
+- [x] Alpha blending, border drawing, scrollbar rendering
+- [x] 67 new tests (272 total, all passing)
 
 **Deliverable:** Can render text, buttons, and scrollable containers on screen.
 
@@ -340,7 +338,7 @@ Move beyond QEMU to a physical phone.
 ### Milestone 6 — Visual OS 🚧 **← IN PROGRESS**
 - [x] Framebuffer / GPU display in QEMU (Phase 1)
 - [x] Working Wayland compositor (Phase 2)
-- [ ] UI toolkit and widget system
+- [x] UI toolkit and widget system (Phase 3)
 - [ ] Lock screen, home screen, status bar
 - [ ] On-screen keyboard
 - [ ] Claude chat UI with message bubbles
@@ -373,7 +371,7 @@ Move beyond QEMU to a physical phone.
 | Base system | **Buildroot** (minimal, customizable) | Decided |
 | Display server | **Wayland** (wlroots-based compositor) | Decided |
 | IPC | **Unix sockets** (daemons) + **HTTP/WebSocket** (bridge) | Decided |
-| UI toolkit | TBD: Python+Cairo, GTK4, LVGL, or Flutter | **To decide** |
+| UI toolkit | Pure Python software renderer + bitmap font | **Done** |
 | Claude integration | Cloud API (on-device later) | Decided |
 | Voice STT | **Vosk** (offline, small model) — deferred to post-visual-OS | Decided |
 | Voice TTS | **espeak-ng** (lightweight) — deferred to post-visual-OS | Decided |
@@ -418,7 +416,7 @@ Claude-OS/
 │   ├── files/                # File manager
 │   ├── browser/              # Web browser
 │   └── terminal/             # Terminal emulator
-├── tests/                    # Test suite (pytest, 205 tests)
+├── tests/                    # Test suite (pytest, 272 tests)
 ├── tools/                    # Build scripts and dev utilities
 │   ├── build/                # Buildroot config, rootfs overlay
 │   ├── emulator/             # QEMU configs
