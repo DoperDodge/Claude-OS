@@ -17,10 +17,28 @@ CPUS="2"
 MACHINE="virt"
 CPU="cortex-a57"
 DEBUG_MODE=false
+GUI_MODE=false
+DISPLAY_BACKEND="gtk"
+SCREEN_WIDTH=480
+SCREEN_HEIGHT=960
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --gui)
+            GUI_MODE=true
+            shift
+            ;;
+        --display)
+            DISPLAY_BACKEND="$2"
+            shift 2
+            ;;
+        --resolution)
+            # Parse WxH format
+            SCREEN_WIDTH="${2%%x*}"
+            SCREEN_HEIGHT="${2##*x}"
+            shift 2
+            ;;
         --debug)
             DEBUG_MODE=true
             shift
@@ -35,7 +53,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--debug] [--memory MB] [--cpus N]"
+            echo "Usage: $0 [--gui] [--display gtk|sdl] [--resolution WxH] [--debug] [--memory MB] [--cpus N]"
             exit 1
             ;;
     esac
@@ -63,9 +81,32 @@ QEMU_CMD=(
     -smp "$CPUS"
     -kernel "$KERNEL"
     -drive "file=$ROOTFS,format=raw,if=virtio"
-    -append "root=/dev/vda console=ttyAMA0 rw"
-    -nographic
+)
 
+# Display mode: GUI with virtio-gpu or text-only serial
+if [[ "$GUI_MODE" == true ]]; then
+    QEMU_CMD+=(
+        -append "root=/dev/vda console=tty0 rw"
+
+        # Virtio GPU — the guest kernel drives this via DRM/virtio-gpu
+        -device virtio-gpu-pci,xres="$SCREEN_WIDTH",yres="$SCREEN_HEIGHT"
+
+        # Display backend (gtk opens a window, sdl is an alternative)
+        -display "$DISPLAY_BACKEND"
+
+        # Keyboard and mouse input passed to guest
+        -device virtio-keyboard-pci
+        -device virtio-mouse-pci
+    )
+    echo "[Claude-OS] GUI mode: ${SCREEN_WIDTH}x${SCREEN_HEIGHT} via ${DISPLAY_BACKEND}"
+else
+    QEMU_CMD+=(
+        -append "root=/dev/vda console=ttyAMA0 rw"
+        -nographic
+    )
+fi
+
+QEMU_CMD+=(
     # Networking: user-mode with port forwarding
     # Host port 2222 -> Guest port 22 (SSH)
     # Host port 8080 -> Guest port 8080 (Claude bridge API)
@@ -88,7 +129,11 @@ if [[ "$DEBUG_MODE" == true ]]; then
 fi
 
 echo "[Claude-OS] Starting QEMU (${CPUS} CPUs, ${MEMORY}MB RAM)..."
-echo "[Claude-OS] Press Ctrl+A then X to exit QEMU"
+if [[ "$GUI_MODE" == true ]]; then
+    echo "[Claude-OS] Close the QEMU window to exit"
+else
+    echo "[Claude-OS] Press Ctrl+A then X to exit QEMU"
+fi
 echo ""
 
 exec "${QEMU_CMD[@]}"

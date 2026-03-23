@@ -21,7 +21,7 @@ Claude-OS currently boots to a **text-only terminal** in QEMU. The system servic
 - System services start via systemd (WiFi, bridge API, notifications, etc.)
 - Claude chat engine calls the Claude API and handles tool use
 - Bridge API server on localhost:8080
-- 143 tests across 8 modules, **now gated in CI**
+- 167 tests across 9 modules, **now gated in CI**
 - Kernel defconfig pre-configured for GPU/DRM/framebuffer display
 - TLS certificate pinning on API communication
 - `.env`-based API key management for development
@@ -78,15 +78,18 @@ Before building the visual OS, we completed these hardening tasks to reduce risk
 
 This is the complete plan for turning Claude-OS from a text terminal into a fully visual, phone-like operating system running in QEMU with a graphical display.
 
-### Phase 1 — Framebuffer Display in QEMU
+### Phase 1 — Framebuffer Display in QEMU ✅
 
 Get pixels on screen. No toolkit, no compositor — just proof that we can draw to a display.
 
-- [ ] Switch QEMU from `-nographic` to `-device virtio-gpu-pci -display gtk` (or SDL)
-- [ ] Add `virtio-gpu`, `drm`, and `fbdev` support to the kernel defconfig
-- [ ] Write a minimal framebuffer test program (`/dev/fb0` or DRM) that draws a colored rectangle
-- [ ] Verify the QEMU window opens and shows graphics output
-- [ ] Add a `make run-gui` target that launches QEMU with a graphical window
+- [x] Switch QEMU from `-nographic` to `-device virtio-gpu-pci -display gtk` (or SDL)
+- [x] Add `virtio-gpu`, `drm`, and `fbdev` support to the kernel defconfig
+- [x] Write a minimal framebuffer test program (`/dev/fb0` or DRM) that draws a colored rectangle
+- [x] Write DRM/KMS display backend with dumb buffer API
+- [x] Boot splash screen with Claude-OS logo and loading bar
+- [x] Verify the QEMU window opens and shows graphics output
+- [x] Add a `make run-gui` target that launches QEMU with a graphical window
+- [x] 24 tests for display module (pixel packing, rendering, clipping)
 
 **Deliverable:** QEMU opens a window, a colored rectangle is drawn on screen.
 
@@ -331,8 +334,8 @@ Move beyond QEMU to a physical phone.
 - [x] Voice engine decision: espeak-ng (TTS) + Vosk (STT), deferred to post-UI
 - [x] Security: TLS pinning integrated into chat engine, module init, bug fixes
 
-### Milestone 6 — Visual OS 🚧 **← UP NEXT**
-- [ ] Framebuffer / GPU display in QEMU
+### Milestone 6 — Visual OS 🚧 **← IN PROGRESS**
+- [x] Framebuffer / GPU display in QEMU (Phase 1 complete)
 - [ ] Working Wayland compositor
 - [ ] UI toolkit and widget system
 - [ ] Lock screen, home screen, status bar
@@ -395,6 +398,7 @@ Claude-OS/
 │   ├── security/             # Encryption, sandboxing, secure boot
 │   └── onboarding/           # First-boot setup flow
 ├── ui/                       # Visual UI layer
+│   ├── display/              # Framebuffer & DRM rendering backends
 │   ├── compositor/           # Wayland compositor (wlroots)
 │   ├── toolkit/              # Widget system (TBD)
 │   ├── keyboard/             # On-screen keyboard
@@ -411,7 +415,7 @@ Claude-OS/
 │   ├── files/                # File manager
 │   ├── browser/              # Web browser
 │   └── terminal/             # Terminal emulator
-├── tests/                    # Test suite (pytest, 143 tests)
+├── tests/                    # Test suite (pytest, 167 tests)
 ├── tools/                    # Build scripts and dev utilities
 │   ├── build/                # Buildroot config, rootfs overlay
 │   ├── emulator/             # QEMU configs

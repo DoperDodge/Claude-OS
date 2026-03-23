@@ -10,7 +10,7 @@ IMAGE_DIR         := $(OUTPUT_DIR)/images
 DEFCONFIG         := $(CURDIR)/tools/build/claude_os_defconfig
 OVERLAY_DIR       := $(CURDIR)/tools/build/rootfs-overlay
 
-.PHONY: all setup build clean run menuconfig help
+.PHONY: all setup build clean run run-gui run-debug test menuconfig help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -51,8 +51,14 @@ distclean: clean ## Remove everything including Buildroot sources
 	rm -rf $(BUILDROOT_DIR) $(BUILDROOT_TAR)
 	@echo "[Claude-OS] Full clean complete."
 
-run: ## Launch Claude-OS in QEMU
+run: ## Launch Claude-OS in QEMU (text mode)
 	@./tools/emulator/run-qemu.sh
+
+run-gui: ## Launch Claude-OS in QEMU with graphical display
+	@./tools/emulator/run-qemu.sh --gui
 
 run-debug: ## Launch Claude-OS in QEMU with GDB server
 	@./tools/emulator/run-qemu.sh --debug
+
+test: ## Run the test suite
+	@python3 -m pytest tests/ -v --tb=short
