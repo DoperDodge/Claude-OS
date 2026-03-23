@@ -43,14 +43,14 @@ A mobile OS where Claude isn't just an app — it **is** the OS. Every interacti
 Full WiFi support so the device can connect to the internet — the foundation for everything else.
 
 #### Phase 1 — WiFi Scanning & Connection
-- [ ] Integrate `wpa_supplicant` or equivalent for WPA2/WPA3 support
-- [ ] Build a WiFi manager daemon that handles:
+- [x] Integrate `wpa_supplicant` or equivalent for WPA2/WPA3 support
+- [x] Build a WiFi manager daemon that handles:
   - Scanning for available networks
   - Connecting to known / new networks
   - Storing saved network credentials (encrypted at rest)
   - Automatic reconnection on signal loss
-- [ ] Expose a D-Bus or socket-based IPC API for other system components to query network state
-- [ ] Support WPA2-Personal, WPA3-Personal, and open networks
+- [x] Expose a D-Bus or socket-based IPC API for other system components to query network state
+- [x] Support WPA2-Personal, WPA3-Personal, and open networks
 
 #### Phase 2 — Claude-Driven WiFi Management
 - [ ] Allow Claude to scan, list, and connect to WiFi networks via natural language
@@ -82,14 +82,14 @@ The Claude mobile app serves as both the main user interface and the AI brain of
 - [ ] Notification tray integration — Claude can read, summarize, and act on notifications
 
 #### Phase 2 — System Integration
-- [ ] Claude ↔ OS bridge: a secure API layer that lets Claude:
+- [x] Claude ↔ OS bridge: a secure API layer that lets Claude:
   - Toggle WiFi, Bluetooth, airplane mode
   - Adjust brightness, volume, and power settings
   - Open, close, and switch between apps
   - Read and respond to messages (with user permission)
   - Set alarms, timers, calendar events
 - [ ] Tool-use framework: Claude can invoke system tools (camera, file manager, browser) as part of a conversation
-- [ ] Context awareness: Claude has access to (opt-in):
+- [x] Context awareness: Claude has access to (opt-in):
   - Current battery level & charging state
   - Connected network info
   - Time, date, timezone, location
@@ -108,52 +108,52 @@ The Claude mobile app serves as both the main user interface and the AI brain of
 
 The project is broken into milestones. Each milestone produces a testable artifact.
 
-### Milestone 0 — Project Setup & Tooling
-- [ ] Choose target hardware (e.g., PinePhone, Pixel via custom ROM, QEMU for emulation)
-- [ ] Set up cross-compilation toolchain
-- [ ] Establish base Linux image (kernel + minimal userspace)
-- [ ] Set up CI/CD pipeline for automated builds
-- [ ] Create emulator/simulator setup for development without physical hardware
+### Milestone 0 — Project Setup & Tooling ✅
+- [x] Choose target hardware (e.g., PinePhone, Pixel via custom ROM, QEMU for emulation)
+- [x] Set up cross-compilation toolchain
+- [x] Establish base Linux image (kernel + minimal userspace)
+- [x] Set up CI/CD pipeline for automated builds
+- [x] Create emulator/simulator setup for development without physical hardware
 
-### Milestone 1 — Minimal Bootable System
-- [ ] Boot to a minimal Linux environment on target hardware / emulator
+### Milestone 1 — Minimal Bootable System (partial)
+- [x] Boot to a minimal Linux environment on target hardware / emulator
 - [ ] Framebuffer or DRM-based display output
 - [ ] Touchscreen input driver
-- [ ] Basic shell access over USB/serial for debugging
+- [x] Basic shell access over USB/serial for debugging
 
-### Milestone 2 — WiFi Connectivity
-- [ ] Kernel drivers for target WiFi chipset
-- [ ] `wpa_supplicant` integration
-- [ ] WiFi manager daemon with IPC API
-- [ ] CLI tool to scan/connect (for testing before UI exists)
-- [ ] Automated connection on boot to a configured network
+### Milestone 2 — WiFi Connectivity ✅
+- [x] Kernel drivers for target WiFi chipset
+- [x] `wpa_supplicant` integration
+- [x] WiFi manager daemon with IPC API
+- [x] CLI tool to scan/connect (for testing before UI exists)
+- [x] Automated connection on boot to a configured network
 
-### Milestone 3 — Display & UI Framework
-- [ ] Choose or build a lightweight UI toolkit (candidates: Flutter, LVGL, custom Wayland compositor)
-- [ ] Implement a basic Wayland compositor for app rendering
-- [ ] Touch gesture handling (tap, swipe, pinch)
-- [ ] On-screen keyboard
-- [ ] Status bar (clock, battery, WiFi indicator)
+### Milestone 3 — Display & UI Framework ✅
+- [x] Choose or build a lightweight UI toolkit (candidates: Flutter, LVGL, custom Wayland compositor)
+- [x] Implement a basic Wayland compositor for app rendering
+- [x] Touch gesture handling (tap, swipe, pinch)
+- [x] On-screen keyboard
+- [x] Status bar (clock, battery, WiFi indicator)
 
-### Milestone 4 — Claude App as System Launcher
+### Milestone 4 — Claude App as System Launcher (in progress)
 - [ ] Port or build the Claude mobile app for the OS
 - [ ] App launches as the system home screen on boot
 - [ ] Chat interface with keyboard and voice input
-- [ ] Secure bridge API between Claude app and system services
-- [ ] Claude can query and control WiFi through the bridge
+- [x] Secure bridge API between Claude app and system services
+- [x] Claude can query and control WiFi through the bridge
 
-### Milestone 5 — Core OS Services
-- [ ] Power management (suspend, wake, shutdown)
-- [ ] Audio playback and microphone access
+### Milestone 5 — Core OS Services (partial)
+- [x] Power management (suspend, wake, shutdown)
+- [x] Audio playback and microphone access
 - [ ] Storage management and file system access
 - [ ] Basic app lifecycle management (launch, suspend, kill)
 - [ ] Notification system
 
-### Milestone 6 — Security & Privacy
+### Milestone 6 — Security & Privacy (partial)
 - [ ] Encrypted storage (LUKS or dm-crypt)
 - [ ] Secure boot chain
 - [ ] Sandboxed app execution (namespaces / seccomp)
-- [ ] Permission system — Claude must request user approval for sensitive actions
+- [x] Permission system — Claude must request user approval for sensitive actions
 - [ ] All Claude API communication over TLS with certificate pinning
 
 ### Milestone 7 — Polish & Usability
@@ -171,9 +171,9 @@ The project is broken into milestones. Each milestone produces a testable artifa
 |---|---|---|
 | Target hardware | **QEMU ARM64 emulator** (PinePhone later) | **Decided** |
 | Base system | **Buildroot** (minimal, fast, customizable) | **Decided** |
-| UI framework | Flutter (Dart), LVGL (C), custom Wayland compositor | TBD |
-| Display server | Wayland (wlroots) vs direct framebuffer | TBD |
-| IPC mechanism | D-Bus, gRPC, Unix sockets | TBD |
+| UI framework | **Custom Wayland compositor** (Python + wlroots) | **Decided** |
+| Display server | **Wayland (wlroots)** with layer-shell for overlays | **Decided** |
+| IPC mechanism | **Unix sockets** (daemons) + **HTTP/WebSocket** (bridge API) | **Decided** |
 | Claude integration | API-based (cloud), on-device hybrid, or both | TBD |
 | App runtime | Native only, WebView-based, or Linux container | TBD |
 
