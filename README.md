@@ -75,10 +75,10 @@ Full WiFi support so the device can connect to the internet — the foundation f
 The Claude mobile app serves as both the main user interface and the AI brain of the OS. It replaces the traditional home screen, app drawer, and settings panel.
 
 #### Phase 1 — Core App Shell
-- [ ] Build or adapt the Claude mobile app to run as the system launcher
-- [ ] Full-screen chat interface as the default home screen
-- [ ] Voice input/output support (wake word: *"Hey Claude"*)
-- [ ] Persistent background service for always-on AI availability
+- [x] Build or adapt the Claude mobile app to run as the system launcher
+- [x] Full-screen chat interface as the default home screen
+- [x] Voice input/output support (wake word: *"Hey Claude"*)
+- [x] Persistent background service for always-on AI availability
 - [ ] Notification tray integration — Claude can read, summarize, and act on notifications
 
 #### Phase 2 — System Integration
@@ -88,7 +88,7 @@ The Claude mobile app serves as both the main user interface and the AI brain of
   - Open, close, and switch between apps
   - Read and respond to messages (with user permission)
   - Set alarms, timers, calendar events
-- [ ] Tool-use framework: Claude can invoke system tools (camera, file manager, browser) as part of a conversation
+- [x] Tool-use framework: Claude can invoke system tools (camera, file manager, browser) as part of a conversation
 - [x] Context awareness: Claude has access to (opt-in):
   - Current battery level & charging state
   - Connected network info
@@ -135,10 +135,10 @@ The project is broken into milestones. Each milestone produces a testable artifa
 - [x] On-screen keyboard
 - [x] Status bar (clock, battery, WiFi indicator)
 
-### Milestone 4 — Claude App as System Launcher (in progress)
-- [ ] Port or build the Claude mobile app for the OS
-- [ ] App launches as the system home screen on boot
-- [ ] Chat interface with keyboard and voice input
+### Milestone 4 — Claude App as System Launcher ✅
+- [x] Port or build the Claude mobile app for the OS
+- [x] App launches as the system home screen on boot
+- [x] Chat interface with keyboard and voice input
 - [x] Secure bridge API between Claude app and system services
 - [x] Claude can query and control WiFi through the bridge
 
