@@ -69,3 +69,21 @@ jobs:
         run: |
           pip3 install flake8
           find . -name "*.py" -exec flake8 --max-line-length=100 {} + || true
+
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio
+
+      - name: Run test suite
+        run: pytest tests/ -v --tb=short

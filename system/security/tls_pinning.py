@@ -105,7 +105,7 @@ class TLSPinningManager:
         ctx.check_hostname = True
 
         # Load system CA certificates
-        ctx.load_default_certs()
+        ctx.load_default_certs(purpose=ssl.Purpose.SERVER_AUTH)
 
         return ctx
 

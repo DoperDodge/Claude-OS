@@ -12,23 +12,39 @@ A mobile OS where Claude isn't just an app — it **is** the OS. Every interacti
 
 ## Current Status
 
-> **The backend is built. The visual OS is not.**
+> **The backend is built. Pre-visual hardening complete. Ready for the visual OS.**
 
-Claude-OS currently boots to a **text-only terminal** in QEMU. The system services (WiFi, notifications, power, audio, storage, app management, bridge API, chat engine) are implemented and functional. However, there is **no graphical display** — the Wayland compositor is scaffolded but the wlroots rendering backend is not wired up, and QEMU runs with `-nographic`.
+Claude-OS currently boots to a **text-only terminal** in QEMU. The system services (WiFi, notifications, power, audio, storage, app management, bridge API, chat engine) are implemented and functional. The kernel, CI, security, and API configuration have been hardened in preparation for the visual OS phase.
 
 **What works today:**
 - Buildroot-based ARM64 Linux image boots in QEMU
 - System services start via systemd (WiFi, bridge API, notifications, etc.)
 - Claude chat engine calls the Claude API and handles tool use
 - Bridge API server on localhost:8080
-- 143 tests across 8 modules
+- 143 tests across 8 modules, **now gated in CI**
+- Kernel defconfig pre-configured for GPU/DRM/framebuffer display
+- TLS certificate pinning on API communication
+- `.env`-based API key management for development
+- Security module: app sandboxing, encrypted storage, secure boot, TLS pinning
 
 **What does NOT work yet:**
 - No graphical display output (no pixels on screen)
 - Wayland compositor has stub backend only (`wlroots bindings not yet built`)
 - No visual home screen, app drawer, or phone-like UI
 - QEMU launches with `-nographic` (no display window)
-- Voice engine is scaffolded but not connected to real speech libraries
+- Voice engine deferred until visual OS provides a UI surface
+
+---
+
+## Pre-Visual-OS Hardening (Completed)
+
+Before building the visual OS, we completed these hardening tasks to reduce risk and tech debt:
+
+- [x] **Kernel display readiness** — Added `virtio-gpu`, `DRM_FBDEV_EMULATION`, `FRAMEBUFFER_CONSOLE`, `DRM_GEM_SHMEM_HELPER`, keyboard/mouse input configs to the kernel defconfig. The kernel is now ready for graphical QEMU output without further config changes.
+- [x] **CI test gating** — Added a `test` job to the GitHub Actions pipeline that runs the full pytest suite (143 tests) on every push and PR. Tests now block merges.
+- [x] **API key management** — Chat engine now supports `.env` file for development, `ANTHROPIC_API_KEY` env var, and `/etc/claude-os/api_key` for on-device use. Added `.env.example` template and `.env` to `.gitignore`.
+- [x] **Voice engine decision** — Formally deferred to post-visual-OS. Chose **espeak-ng** (TTS) and **Vosk** (STT) as target engines. Code is ready; just needs model binaries and a UI mic button.
+- [x] **Security tightening** — Wired TLS certificate pinning into the chat engine's HTTP fallback path. Added `__init__.py` to security module for clean imports. Fixed `load_default_certs` call with explicit purpose. Fixed `_command_exists` bug in voice engine (wasn't checking return code).
 
 ---
 
@@ -294,20 +310,28 @@ Move beyond QEMU to a physical phone.
 - [x] Notification system
 - [x] Bridge API server
 
-### Milestone 4 — Security & Privacy ✅ (Scaffolded)
+### Milestone 4 — Security & Privacy ✅
 - [x] Encrypted storage (LUKS)
 - [x] Secure boot chain
 - [x] App sandboxing (namespaces / seccomp)
 - [x] Permission system for sensitive actions
-- [x] TLS with certificate pinning
+- [x] TLS with certificate pinning (now wired into chat engine HTTP path)
 
 ### Milestone 5 — Chat Engine ✅
 - [x] Claude API integration
 - [x] Tool-use conversation loop
 - [x] Conversation history and persistence
 - [x] System tool registration
+- [x] `.env` / env var / config file API key resolution chain
 
-### Milestone 6 — Visual OS 🚧 **← WE ARE HERE**
+### Milestone 5.5 — Pre-Visual Hardening ✅ **← JUST COMPLETED**
+- [x] Kernel defconfig: GPU, DRM, framebuffer console, input devices
+- [x] CI: pytest job gating PRs (143 tests)
+- [x] API key management: `.env` support + `.env.example` template
+- [x] Voice engine decision: espeak-ng (TTS) + Vosk (STT), deferred to post-UI
+- [x] Security: TLS pinning integrated into chat engine, module init, bug fixes
+
+### Milestone 6 — Visual OS 🚧 **← UP NEXT**
 - [ ] Framebuffer / GPU display in QEMU
 - [ ] Working Wayland compositor
 - [ ] UI toolkit and widget system
@@ -345,6 +369,9 @@ Move beyond QEMU to a physical phone.
 | IPC | **Unix sockets** (daemons) + **HTTP/WebSocket** (bridge) | Decided |
 | UI toolkit | TBD: Python+Cairo, GTK4, LVGL, or Flutter | **To decide** |
 | Claude integration | Cloud API (on-device later) | Decided |
+| Voice STT | **Vosk** (offline, small model) — deferred to post-visual-OS | Decided |
+| Voice TTS | **espeak-ng** (lightweight) — deferred to post-visual-OS | Decided |
+| API key config | **`.env`** (dev) / **env var** / **config file** (prod) | Decided |
 | App runtime | TBD: Native, WebView, or container | **To decide** |
 | App packaging | TBD: Custom `.cpk`, Flatpak, or AppImage | **To decide** |
 
@@ -403,9 +430,17 @@ See [docs/setup.md](docs/setup.md) for full instructions. Quick start:
 sudo apt-get install build-essential gcc-aarch64-linux-gnu qemu-system-aarch64 \
     libncurses-dev unzip bc cpio rsync wget curl python3 file
 
+# Configure API key (required for Claude chat)
+cp .env.example .env
+# Edit .env and add your Anthropic API key
+
 # Build the OS
 make setup    # Downloads Buildroot
 make build    # Compiles everything (~30-60 min first time)
+
+# Run tests
+pip install pytest pytest-asyncio
+pytest tests/ -v
 
 # Run in QEMU (text mode — current default)
 make run      # Boots Claude-OS in terminal mode

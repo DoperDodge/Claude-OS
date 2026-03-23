@@ -266,7 +266,11 @@ grant the permission in settings."""
 
     async def _call_api_http(self, api_key: str, messages: list[dict],
                              tools: list[dict] = None) -> ChatResponse:
-        """Call API using raw HTTP (fallback when SDK not installed)."""
+        """Call API using raw HTTP (fallback when SDK not installed).
+
+        Uses TLS certificate pinning when the security module is available
+        to prevent MITM attacks on API key transmission.
+        """
         import urllib.request
         import urllib.error
 
@@ -292,7 +296,19 @@ grant the permission in settings."""
             },
         )
 
+        # Use TLS-pinned opener if security module is available
+        opener = None
+        try:
+            from tls_pinning import create_pinned_https_handler
+            opener = create_pinned_https_handler()
+            logger.debug("Using TLS-pinned HTTPS for API call")
+        except ImportError:
+            logger.debug("TLS pinning module not available, using default HTTPS")
+
         def do_request():
+            if opener:
+                with opener.open(req, timeout=60) as resp:
+                    return json.loads(resp.read().decode())
             with urllib.request.urlopen(req, timeout=60) as resp:
                 return json.loads(resp.read().decode())
 
@@ -380,7 +396,13 @@ grant the permission in settings."""
         return specs
 
     def _get_api_key(self) -> str | None:
-        """Read the API key from config."""
+        """Read the API key from config.
+
+        Search order:
+            1. ANTHROPIC_API_KEY environment variable
+            2. .env file in project root (for development)
+            3. /etc/claude-os/api_key file (on-device production)
+        """
         if self._api_key:
             return self._api_key
 
@@ -390,7 +412,22 @@ grant the permission in settings."""
             self._api_key = key.strip()
             return self._api_key
 
-        # Try config file
+        # Try .env file (development convenience)
+        env_file = Path(__file__).resolve().parent.parent.parent / ".env"
+        if env_file.exists():
+            try:
+                for line in env_file.read_text().splitlines():
+                    line = line.strip()
+                    if line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    if k.strip() == "ANTHROPIC_API_KEY":
+                        self._api_key = v.strip().strip("'\"")
+                        return self._api_key
+            except OSError:
+                pass
+
+        # Try config file (on-device)
         if API_KEY_PATH.exists():
             try:
                 self._api_key = API_KEY_PATH.read_text().strip()

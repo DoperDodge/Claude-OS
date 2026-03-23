@@ -12,6 +12,20 @@ Uses:
 - Vosk or Whisper for offline STT (when available)
 - espeak-ng or piper for offline TTS
 - Falls back to API-based STT/TTS when online
+
+Status: DEFERRED — Voice integration is postponed until after the visual OS
+(Milestone 6) is functional. Rationale:
+  1. Voice input requires a UI surface (mic button, waveform indicator,
+     transcript preview) that doesn't exist yet.
+  2. STT/TTS model binaries (Vosk ~50MB, Whisper ~75MB, Piper ~15MB) add
+     significant image size; not worth it until the rest of the OS can use them.
+  3. The auto-detection logic below is ready — once models are bundled via
+     Buildroot packages and the UI provides a mic button, this engine plugs in
+     with zero code changes.
+
+Decision: espeak-ng for TTS (lightweight, good enough for notifications),
+          Vosk small model for STT (offline-first, low latency).
+          Whisper available as an optional upgrade for better accuracy.
 """
 
 import asyncio
@@ -293,10 +307,10 @@ class VoiceEngine:
     def _command_exists(cmd: str) -> bool:
         """Check if a command is available on the system."""
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["which", cmd],
                 capture_output=True, timeout=5,
             )
-            return True
+            return result.returncode == 0
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
