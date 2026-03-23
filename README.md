@@ -149,12 +149,12 @@ The project is broken into milestones. Each milestone produces a testable artifa
 - [x] Basic app lifecycle management (launch, suspend, kill)
 - [x] Notification system
 
-### Milestone 6 — Security & Privacy (partial)
-- [ ] Encrypted storage (LUKS or dm-crypt)
-- [ ] Secure boot chain
-- [ ] Sandboxed app execution (namespaces / seccomp)
+### Milestone 6 — Security & Privacy ✅
+- [x] Encrypted storage (LUKS or dm-crypt)
+- [x] Secure boot chain
+- [x] Sandboxed app execution (namespaces / seccomp)
 - [x] Permission system — Claude must request user approval for sensitive actions
-- [ ] All Claude API communication over TLS with certificate pinning
+- [x] All Claude API communication over TLS with certificate pinning
 
 ### Milestone 7 — Polish & Usability
 - [ ] OTA update system
