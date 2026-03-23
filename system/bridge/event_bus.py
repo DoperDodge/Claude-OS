@@ -12,7 +12,7 @@ from typing import Callable
 logger = logging.getLogger("bridge.events")
 
 # Type alias for event handlers
-EventHandler = Callable[[str, dict], asyncio.coroutine]
+EventHandler = Callable
 
 
 class EventBus:
