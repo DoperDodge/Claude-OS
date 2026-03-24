@@ -85,6 +85,7 @@ class DesktopOS:
             on_unlock=self._on_unlock,
             pin_required=True,
         )
+        self.lock_screen.set_pin("1234")
 
         # Status bar
         self.status_bar = StatusBarWidget()
@@ -278,7 +279,22 @@ class DesktopOS:
         """Handle physical keyboard input (for convenience)."""
         if key_name == "escape":
             return "quit"
-        elif key_name == "backspace":
+
+        # Lock screen: route number keys to PIN entry
+        if self.screen == "lock":
+            if key_name in "0123456789" and len(key_name) == 1:
+                # Auto-swipe to PIN view if not showing yet
+                if not self.lock_screen._show_pin:
+                    self.lock_screen._show_pin = True
+                    self.lock_screen._build_pin_ui()
+                self.lock_screen._on_pin_key(key_name)
+            elif key_name == "backspace":
+                if self.lock_screen._show_pin:
+                    self.lock_screen._on_pin_key("DEL")
+            return None
+
+        # Home screen
+        if key_name == "backspace":
             if self.screen == "home":
                 self.home_screen.input_bar.append_char("BACKSPACE")
         elif key_name == "return":
