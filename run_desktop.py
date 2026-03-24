@@ -111,7 +111,7 @@ class DesktopOS:
         # Notification panel
         self.notification_panel = NotificationPanel()
         self.notification_panel.add_notification(
-            "Claude", "Welcome", "Tap to chat with Claude", "now"
+            "Claude", "Welcome", "Tap to chat with Claude"
         )
 
         # App drawer
