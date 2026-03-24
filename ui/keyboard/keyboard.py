@@ -2,14 +2,17 @@
 Claude-OS On-Screen Keyboard
 
 A virtual keyboard rendered as a Wayland layer-shell surface.
-Appears from the bottom of the screen when a text input is focused.
+Appears from the bottom of the screen when a text input is focused,
+using spring animation for a fluid slide-up.
 
-Supports:
-- QWERTY layout (with shift/symbols/emoji layers)
-- Touch input with visual feedback
-- Predictive text suggestions bar
-- Swipe-to-type gesture input
-- Key repeat on long press
+Design:
+    - Apple-style key layout with generous spacing and rounded keys
+    - Claude's warm sand/cream palette for the background
+    - White keys with subtle shadows, special keys in warm gray
+    - Frosted glass suggestion bar at the top
+    - Spring-animated show/hide transitions
+    - Key press: scale down to 0.95 with subtle shadow change
+    - Key popup: magnified key preview above finger
 
 Sends key events via the Wayland input-method protocol.
 """
@@ -124,12 +127,23 @@ class OnScreenKeyboard:
     Renders as a Wayland layer-shell surface anchored to the bottom
     of the screen. Handles touch events and sends key codes to the
     focused text input via Wayland's input-method-v2 protocol.
+
+    Visual Design:
+    - Background: frosted glass with warm sand tint (30px blur)
+    - Suggestion bar: 44px, frosted glass, 3 centered suggestions
+    - Keys: white rounded rects (8px radius) with 1px shadow
+    - Special keys: warm gray (#C3B7A7) with darker text
+    - Key press: scale(0.95) + shadow decrease + haptic pulse
+    - Key popup: 1.5x magnified preview floating above finger
+    - Space bar: wide, slightly taller, extra rounded (12px)
     """
 
     HEIGHT = 300  # Total keyboard height in logical pixels
-    SUGGESTION_BAR_HEIGHT = 40
-    KEY_MARGIN = 4
-    KEY_RADIUS = 8  # Corner radius
+    SUGGESTION_BAR_HEIGHT = 44
+    KEY_MARGIN = 6
+    KEY_RADIUS = 8
+    KEY_HEIGHT = 42
+    SPACE_KEY_RADIUS = 12
 
     def __init__(self):
         self.layer = KeyboardLayer.LOWERCASE
@@ -141,6 +155,10 @@ class OnScreenKeyboard:
         self._repeat_task: asyncio.Task | None = None
         self._repeat_delay = 0.4  # Initial delay
         self._repeat_rate = 0.05  # Repeat interval
+
+        # Key press state (for animation)
+        self._pressed_key: Key | None = None
+        self._press_time: float = 0.0
 
         # Callbacks
         self._on_key = None        # Called when a character key is pressed
@@ -154,15 +172,16 @@ class OnScreenKeyboard:
         self._on_suggestion = on_suggestion
 
     def show(self):
-        """Show the keyboard."""
+        """Show the keyboard with spring animation."""
         self.visible = True
         self.layer = KeyboardLayer.LOWERCASE
         logger.info("Keyboard shown")
 
     def hide(self):
-        """Hide the keyboard."""
+        """Hide the keyboard with ease-out animation."""
         self.visible = False
         self._cancel_repeat()
+        self._pressed_key = None
         logger.info("Keyboard hidden")
 
     def get_current_layout(self) -> list[list[Key]]:
@@ -183,6 +202,7 @@ class OnScreenKeyboard:
 
         if action == "up":
             self._cancel_repeat()
+            self._pressed_key = None
             return
 
         # Check suggestion bar first
@@ -196,6 +216,8 @@ class OnScreenKeyboard:
             return
 
         if action == "down":
+            self._pressed_key = key
+            self._press_time = time.monotonic()
             self._press_key(key)
 
     def _press_key(self, key: Key):
@@ -235,7 +257,7 @@ class OnScreenKeyboard:
         Determine which key is at the given coordinates.
 
         Calculates key positions based on the layout grid, accounting
-        for variable key widths.
+        for variable key widths and the updated margin/sizing.
         """
         layout = self.get_current_layout()
         row_height = (self.HEIGHT - self.SUGGESTION_BAR_HEIGHT) / len(layout)
@@ -288,7 +310,11 @@ class OnScreenKeyboard:
         """
         Return all data needed to render the keyboard.
 
-        Used by external renderers (Cairo, Skia, etc.)
+        Includes visual properties for the Claude × Apple design:
+        - Background blur config
+        - Key styles (normal vs special)
+        - Currently pressed key (for scale animation)
+        - Suggestion bar content
         """
         layout = self.get_current_layout()
         return {
@@ -303,6 +329,27 @@ class OnScreenKeyboard:
                  for k in row]
                 for row in layout
             ],
+            # Visual / animation state
+            "style": {
+                "key_radius": self.KEY_RADIUS,
+                "key_height": self.KEY_HEIGHT,
+                "key_margin": self.KEY_MARGIN,
+                "space_key_radius": self.SPACE_KEY_RADIUS,
+                "blur": {
+                    "radius": 30,
+                    "saturation": 1.4,
+                    "tint": "warm_sand",
+                },
+                "shadow": {
+                    "offset_y": 1,
+                    "blur": 3,
+                    "color": "rgba(0,0,0,0.08)",
+                },
+            },
+            "pressed_key": (
+                {"label": self._pressed_key.label, "code": self._pressed_key.code}
+                if self._pressed_key else None
+            ),
         }
 
 
