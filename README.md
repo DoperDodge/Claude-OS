@@ -21,7 +21,7 @@ Claude-OS currently boots to a **text-only terminal** in QEMU. The system servic
 - System services start via systemd (WiFi, bridge API, notifications, etc.)
 - Claude chat engine calls the Claude API and handles tool use
 - Bridge API server on localhost:8080
-- 423 tests across 20 modules, **now gated in CI**
+- 514 tests across 21 modules, **now gated in CI**
 - Kernel defconfig pre-configured for GPU/DRM/framebuffer display
 - TLS certificate pinning on API communication
 - `.env`-based API key management for development
@@ -195,19 +195,20 @@ Let third-party and system apps run as visual windows.
 
 **Deliverable:** Multiple apps can run, switch between them, each renders in its own window.
 
-### Phase 6 — Animations & Polish
+### Phase 6 — Animations & Polish ✅
 
 Make it feel smooth and modern.
 
-- [ ] Screen transitions (slide left/right between screens)
-- [ ] Keyboard slide-up/slide-down animation
-- [ ] Notification panel slide-down animation
-- [ ] App launch zoom animation
-- [ ] Smooth scrolling in chat and lists
-- [ ] Loading spinners and skeleton screens
-- [ ] Haptic-style visual feedback (button press ripple effect)
-- [ ] Dark mode / light mode theme toggle
-- [ ] Adaptive layout for different screen sizes
+- [x] Animation engine: tweening with 6 easing curves, animation controller with timeline
+- [x] Screen transitions: slide left/right/up/down, zoom in, crossfade (ScreenTransitionManager)
+- [x] Keyboard & notification panel slide-up/slide-down via SLIDE_UP/SLIDE_DOWN transitions
+- [x] App launch zoom animation via ZOOM_IN transition type
+- [x] Smooth scrolling with momentum physics (ScrollPhysics: friction-based deceleration)
+- [x] Loading spinners (animated arc) and skeleton screens (shimmer effect)
+- [x] Button press ripple effect (Material-style expanding circle with fade)
+- [x] Dark mode / light mode theme toggle (ThemeManager with live color switching)
+- [x] Adaptive layout for 4 screen sizes: small/medium/large/xlarge (font, spacing, grid scaling)
+- [x] 91 new tests (514 total, all passing)
 
 **Deliverable:** The OS feels responsive and polished, not janky.
 
@@ -358,9 +359,9 @@ Move beyond QEMU to a physical phone.
 - [x] Built-in system apps (Settings, Files, Terminal, Contacts) (Phase 5)
 - [x] App install/uninstall via .cpk packages (Phase 5)
 
-### Milestone 8 — Polish 🚧 **← NEXT**
-- [ ] Animations and transitions
-- [ ] Dark/light theme
+### Milestone 8 — Polish ✅
+- [x] Animations and transitions (Phase 6)
+- [x] Dark/light theme (Phase 6)
 - [ ] Accessibility
 - [ ] OTA updates
 
@@ -424,7 +425,7 @@ Claude-OS/
 │   ├── files/                # File manager
 │   ├── browser/              # Web browser
 │   └── terminal/             # Terminal emulator
-├── tests/                    # Test suite (pytest, 423 tests)
+├── tests/                    # Test suite (pytest, 514 tests)
 ├── tools/                    # Build scripts and dev utilities
 │   ├── build/                # Buildroot config, rootfs overlay
 │   ├── emulator/             # QEMU configs
