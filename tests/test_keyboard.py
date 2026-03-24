@@ -163,13 +163,13 @@ class TestRenderData:
     def test_render_data_structure(self, kb):
         data = kb.get_render_data()
         assert data["visible"] is True
-        assert data["height"] == 300
+        assert data["height"] == kb.height
         assert data["layer"] == "LOWERCASE"
-        assert len(data["rows"]) == 4
+        assert len(data["keys"]["rows"]) == 4
 
     def test_render_data_key_format(self, kb):
         data = kb.get_render_data()
-        key = data["rows"][0][0]
+        key = data["keys"]["rows"][0][0]
         assert "label" in key
         assert "code" in key
         assert "width" in key

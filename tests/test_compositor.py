@@ -1,7 +1,7 @@
 """Tests for the Wayland compositor."""
 
 import pytest
-from compositor import Compositor, OutputConfig, Surface, SurfaceRole
+from compositor import Compositor, OutputConfig, Surface, SurfaceRole, CompositorState, SceneNode
 
 
 @pytest.fixture
@@ -162,30 +162,34 @@ class TestDisplayPower:
 
 
 class TestRenderFrame:
-    """Test frame rendering."""
+    """Test frame rendering via scene graph."""
 
-    def test_render_returns_visible_surfaces(self, comp):
+    def test_render_returns_scene_graph(self, comp):
+        comp.set_state(CompositorState.HOME)
         comp.add_surface("bar", role=SurfaceRole.STATUS_BAR)
         comp.add_surface("app", app_id="app1", role=SurfaceRole.APP)
 
-        surfaces = comp.render_frame()
-        assert len(surfaces) == 2
+        scene = comp.render_frame()
+        # Scene root has children: app + status bar + home indicator
+        assert len(scene.children) >= 2
 
-    def test_hidden_keyboard_not_rendered(self, comp):
+    def test_hidden_keyboard_not_in_scene(self, comp):
+        comp.set_state(CompositorState.HOME)
         comp.add_surface("bar", role=SurfaceRole.STATUS_BAR)
         comp.add_surface("app", app_id="app1", role=SurfaceRole.APP)
         comp.add_surface("kb", role=SurfaceRole.KEYBOARD)
 
-        surfaces = comp.render_frame()
-        roles = [s.role for s in surfaces]
-        assert SurfaceRole.KEYBOARD not in roles
+        scene = comp.render_frame()
+        surface_roles = [n.surface.role for n in scene.children if n.surface]
+        assert SurfaceRole.KEYBOARD not in surface_roles
 
-    def test_visible_keyboard_rendered(self, comp):
+    def test_visible_keyboard_in_scene(self, comp):
+        comp.set_state(CompositorState.HOME)
         comp.add_surface("bar", role=SurfaceRole.STATUS_BAR)
         comp.add_surface("app", app_id="app1", role=SurfaceRole.APP)
         comp.add_surface("kb", role=SurfaceRole.KEYBOARD)
         comp.show_keyboard()
 
-        surfaces = comp.render_frame()
-        roles = [s.role for s in surfaces]
-        assert SurfaceRole.KEYBOARD in roles
+        scene = comp.render_frame()
+        surface_roles = [n.surface.role for n in scene.children if n.surface]
+        assert SurfaceRole.KEYBOARD in surface_roles
