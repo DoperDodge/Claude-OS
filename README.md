@@ -21,7 +21,7 @@ Claude-OS currently boots to a **text-only terminal** in QEMU. The system servic
 - System services start via systemd (WiFi, bridge API, notifications, etc.)
 - Claude chat engine calls the Claude API and handles tool use
 - Bridge API server on localhost:8080
-- 514 tests across 21 modules, **now gated in CI**
+- 610 tests across 22 modules, **now gated in CI**
 - Kernel defconfig pre-configured for GPU/DRM/framebuffer display
 - TLS certificate pinning on API communication
 - `.env`-based API key management for development
@@ -212,20 +212,27 @@ Make it feel smooth and modern.
 
 **Deliverable:** The OS feels responsive and polished, not janky.
 
-### Phase 7 — Claude Visual Integration
+### Phase 7 — Claude Visual Integration ✅
 
 Claude can see and interact with the visual OS.
 
-- [ ] Claude can take screenshots of the current display
-- [ ] Claude can read on-screen text and describe what's shown
-- [ ] Claude can generate and display rich responses:
-  - Inline images, charts, code blocks with syntax highlighting
-  - Interactive cards (e.g., WiFi network picker, file browser)
-  - Action buttons within chat ("Connect", "Open", "Share")
-- [ ] Claude-driven UI: Claude can dynamically create UI screens
-  - *"Show me my calendar this week"* → Claude renders a calendar view
-  - *"Make a shopping list"* → Claude shows an editable checklist
-- [ ] Ambient mode: Claude provides a glanceable dashboard when idle (weather, reminders, news)
+- [x] Screenshot capture: reads compositor pixel buffer, encodes to PNG/base64 for vision API
+- [x] Screen reader: walks widget tree to extract all visible text and interactive elements (no OCR needed)
+- [x] Screen description: generates structured text description of current UI for Claude's context
+- [x] Rich content rendering in chat:
+  - [x] Code blocks with syntax highlighting (Python, JavaScript, generic — keyword/string/comment/number colors)
+  - [x] Bar charts for inline data visualization (storage, signal strength, etc.)
+  - [x] Interactive cards with title, body, icon, and action buttons (WiFi picker, file items)
+  - [x] Action button bars ("Connect" | "Open" | "Share") embedded in chat responses
+- [x] Rich content parser: detects ```code```, [chart:], [card], [actions:] in Claude's responses
+- [x] Claude-driven dynamic UI generation via JSON specs:
+  - [x] Checklist: interactive to-do lists with progress bar and toggle
+  - [x] Calendar: month grid with event dots and day tapping
+  - [x] Info Panel: key-value display for settings/status
+  - [x] Custom Form: input fields with submit button
+- [x] Ambient mode: glanceable idle dashboard with clock, weather, next reminder, notification badge, quotes
+- [x] Vision tools registered with chat engine: take_screenshot, read_screen, describe_screen, find_text, generate_ui
+- [x] 96 new tests (610 total, all passing)
 
 **Deliverable:** Claude is deeply visual — it sees the screen, renders rich UI, and creates dynamic interfaces.
 
@@ -365,6 +372,13 @@ Move beyond QEMU to a physical phone.
 - [ ] Accessibility
 - [ ] OTA updates
 
+### Milestone 8.5 — Claude Visual Integration ✅
+- [x] Screenshot capture and screen reader (Phase 7)
+- [x] Rich content in chat: code blocks, charts, cards, action buttons (Phase 7)
+- [x] Dynamic UI generation: checklist, calendar, info panel, form (Phase 7)
+- [x] Ambient mode dashboard (Phase 7)
+- [x] Vision tools registered with chat engine (Phase 7)
+
 ### Milestone 9 — Real Hardware
 - [ ] PinePhone support
 - [ ] Hardware drivers (modem, camera, GPS, sensors)
@@ -425,7 +439,7 @@ Claude-OS/
 │   ├── files/                # File manager
 │   ├── browser/              # Web browser
 │   └── terminal/             # Terminal emulator
-├── tests/                    # Test suite (pytest, 514 tests)
+├── tests/                    # Test suite (pytest, 610 tests)
 ├── tools/                    # Build scripts and dev utilities
 │   ├── build/                # Buildroot config, rootfs overlay
 │   ├── emulator/             # QEMU configs
