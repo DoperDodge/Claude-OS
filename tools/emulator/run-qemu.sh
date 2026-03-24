@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Claude-OS QEMU Launcher
 # Boots Claude-OS in a QEMU ARM64 virtual machine
+# Supports text mode (default), GUI with GTK, and GUI with SDL
 
 set -euo pipefail
 
@@ -17,10 +18,19 @@ CPUS="2"
 MACHINE="virt"
 CPU="cortex-a57"
 DEBUG_MODE=false
+DISPLAY_MODE="text"  # text, gtk, sdl
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --gui|--gtk)
+            DISPLAY_MODE="gtk"
+            shift
+            ;;
+        --sdl)
+            DISPLAY_MODE="sdl"
+            shift
+            ;;
         --debug)
             DEBUG_MODE=true
             shift
@@ -35,7 +45,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--debug] [--memory MB] [--cpus N]"
+            echo "Usage: $0 [--gui|--gtk|--sdl] [--debug] [--memory MB] [--cpus N]"
+            echo ""
+            echo "Display modes:"
+            echo "  (default)     Text-only serial console (-nographic)"
+            echo "  --gui, --gtk  Graphical window using GTK display"
+            echo "  --sdl         Graphical window using SDL display (works over SSH/headless)"
             exit 1
             ;;
     esac
@@ -63,8 +78,6 @@ QEMU_CMD=(
     -smp "$CPUS"
     -kernel "$KERNEL"
     -drive "file=$ROOTFS,format=raw,if=virtio"
-    -append "root=/dev/vda console=ttyAMA0 rw"
-    -nographic
 
     # Networking: user-mode with port forwarding
     # Host port 2222 -> Guest port 22 (SSH)
@@ -80,6 +93,37 @@ QEMU_CMD=(
     -device virtio-rng-pci
 )
 
+# Configure display mode
+case "$DISPLAY_MODE" in
+    text)
+        QEMU_CMD+=(
+            -append "root=/dev/vda console=ttyAMA0 rw"
+            -nographic
+        )
+        ;;
+    gtk|sdl)
+        QEMU_CMD+=(
+            # Kernel console on both serial AND virtual framebuffer
+            -append "root=/dev/vda console=ttyAMA0 console=tty0 rw"
+
+            # Virtio GPU — provides DRM device in guest (/dev/dri/card0)
+            -device virtio-gpu-pci
+
+            # Display backend
+            -display "$DISPLAY_MODE"
+
+            # Virtio tablet — absolute pointer (like a touchscreen)
+            -device virtio-tablet-pci
+
+            # Virtio keyboard — keyboard input to guest
+            -device virtio-keyboard-pci
+
+            # Keep serial console accessible on stdio as well
+            -serial mon:stdio
+        )
+        ;;
+esac
+
 # Add GDB server if debug mode
 if [[ "$DEBUG_MODE" == true ]]; then
     QEMU_CMD+=(-s -S)
@@ -87,8 +131,13 @@ if [[ "$DEBUG_MODE" == true ]]; then
     echo "[Claude-OS] Connect with: gdb-multiarch -ex 'target remote :1234'"
 fi
 
-echo "[Claude-OS] Starting QEMU (${CPUS} CPUs, ${MEMORY}MB RAM)..."
-echo "[Claude-OS] Press Ctrl+A then X to exit QEMU"
+echo "[Claude-OS] Starting QEMU (${CPUS} CPUs, ${MEMORY}MB RAM, display=${DISPLAY_MODE})..."
+if [[ "$DISPLAY_MODE" == "text" ]]; then
+    echo "[Claude-OS] Press Ctrl+A then X to exit QEMU"
+else
+    echo "[Claude-OS] Close the QEMU window or press Ctrl+C to exit"
+    echo "[Claude-OS] Serial console available on this terminal"
+fi
 echo ""
 
 exec "${QEMU_CMD[@]}"

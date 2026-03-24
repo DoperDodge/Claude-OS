@@ -10,7 +10,7 @@ IMAGE_DIR         := $(OUTPUT_DIR)/images
 DEFCONFIG         := $(CURDIR)/tools/build/claude_os_defconfig
 OVERLAY_DIR       := $(CURDIR)/tools/build/rootfs-overlay
 
-.PHONY: all setup build clean run menuconfig help preview test
+.PHONY: all setup build clean run run-gui run-gui-sdl run-debug menuconfig help preview test fbtest render-test
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -51,8 +51,14 @@ distclean: clean ## Remove everything including Buildroot sources
 	rm -rf $(BUILDROOT_DIR) $(BUILDROOT_TAR)
 	@echo "[Claude-OS] Full clean complete."
 
-run: ## Launch Claude-OS in QEMU
+run: ## Launch Claude-OS in QEMU (text mode)
 	@./tools/emulator/run-qemu.sh
+
+run-gui: ## Launch Claude-OS in QEMU with graphical display (GTK)
+	@./tools/emulator/run-qemu.sh --gui
+
+run-gui-sdl: ## Launch Claude-OS in QEMU with graphical display (SDL)
+	@./tools/emulator/run-qemu.sh --sdl
 
 run-debug: ## Launch Claude-OS in QEMU with GDB server
 	@./tools/emulator/run-qemu.sh --debug
@@ -60,6 +66,14 @@ run-debug: ## Launch Claude-OS in QEMU with GDB server
 preview: ## Generate visual UI preview (open preview.html in browser)
 	@python3 tools/preview/generate_preview.py
 	@echo "[Claude-OS] Open preview.html in your browser!"
+
+fbtest: ## Build the DRM framebuffer test program
+	@$(MAKE) -C tools/fbtest CROSS_COMPILE=aarch64-linux-gnu-
+	@echo "[Claude-OS] DRM test built: tools/fbtest/drm_test"
+
+render-test: ## Render a test frame to PNG (headless, no QEMU needed)
+	@python3 tools/fbtest/render_test.py --output frame.png
+	@echo "[Claude-OS] Test frame: frame.png"
 
 test: ## Run the test suite
 	@python3 -m pytest tests/ -v

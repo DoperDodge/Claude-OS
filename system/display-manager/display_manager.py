@@ -7,9 +7,14 @@ UI components as Wayland clients.
 
 Boot sequence:
     1. systemd starts display-manager
-    2. Display manager starts compositor (Wayland server)
-    3. Compositor exports WAYLAND_DISPLAY
-    4. Display manager launches: status bar, keyboard, Claude app
+    2. Display manager detects display backend (DRM or stub)
+    3. Display manager starts compositor (Wayland server)
+    4. Compositor exports WAYLAND_DISPLAY
+    5. Display manager launches: status bar, keyboard, Claude app
+
+Display backends:
+    - DRM: Real framebuffer rendering via /dev/dri/card0 (QEMU --gui mode)
+    - Stub: No display, services run but nothing is drawn (text mode)
 """
 
 import asyncio
@@ -42,11 +47,34 @@ class DisplayManager:
         self._child_procs: list[subprocess.Popen] = []
         self._running = False
         self._wayland_display = "wayland-0"
+        self._display_backend = "stub"  # "drm" or "stub"
+
+    @staticmethod
+    def detect_display_backend() -> str:
+        """Detect available display backend."""
+        # Check for DRM device (present when QEMU has virtio-gpu)
+        drm_devices = ["/dev/dri/card0", "/dev/dri/card1"]
+        for dev in drm_devices:
+            if os.path.exists(dev):
+                logger.info("DRM device found: %s", dev)
+                return "drm"
+
+        # Check for framebuffer device (fbdev emulation)
+        if os.path.exists("/dev/fb0"):
+            logger.info("Framebuffer device found: /dev/fb0")
+            return "drm"  # Use DRM path, fbdev is emulated via DRM
+
+        logger.info("No display device found, using stub backend")
+        return "stub"
 
     async def start(self):
         """Start the display session."""
         self._running = True
         logger.info("Display manager starting")
+
+        # Step 0: Detect display backend
+        self._display_backend = self.detect_display_backend()
+        logger.info("Display backend: %s", self._display_backend)
 
         # Step 1: Start the compositor
         await self._start_compositor()
@@ -57,7 +85,7 @@ class DisplayManager:
         # Step 3: Launch UI components
         await self._launch_ui()
 
-        logger.info("Display session is ready")
+        logger.info("Display session is ready (backend=%s)", self._display_backend)
 
         # Monitor child processes
         await self._monitor()
@@ -68,8 +96,10 @@ class DisplayManager:
         env["XDG_RUNTIME_DIR"] = "/run/user/0"
         env["DISPLAY_WIDTH"] = os.environ.get("DISPLAY_WIDTH", "1080")
         env["DISPLAY_HEIGHT"] = os.environ.get("DISPLAY_HEIGHT", "2340")
+        env["CLAUDE_OS_DISPLAY_BACKEND"] = self._display_backend
 
-        logger.info("Starting compositor: %s", COMPOSITOR_PATH)
+        logger.info("Starting compositor: %s (backend=%s)",
+                     COMPOSITOR_PATH, self._display_backend)
         self._compositor_proc = subprocess.Popen(
             [sys.executable, COMPOSITOR_PATH],
             env=env,
