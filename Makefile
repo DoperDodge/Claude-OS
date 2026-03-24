@@ -19,6 +19,13 @@ help: ## Show this help
 all: build ## Build the full OS image
 
 setup: $(BUILDROOT_DIR) ## Download and configure Buildroot
+	@if [ ! -f $(OUTPUT_DIR)/.config ]; then \
+		echo "[Claude-OS] Applying Claude-OS defconfig..."; \
+		cp $(DEFCONFIG) $(BUILDROOT_DIR)/configs/claude_os_defconfig; \
+		$(MAKE) -C $(BUILDROOT_DIR) claude_os_defconfig \
+			BR2_EXTERNAL=$(CURDIR)/tools/build \
+			O=$(CURDIR)/$(OUTPUT_DIR); \
+	fi
 	@echo "[Claude-OS] Buildroot is ready."
 
 $(BUILDROOT_DIR):
