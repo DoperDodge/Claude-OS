@@ -10,7 +10,7 @@ IMAGE_DIR         := $(OUTPUT_DIR)/images
 DEFCONFIG         := $(CURDIR)/tools/build/claude_os_defconfig
 OVERLAY_DIR       := $(CURDIR)/tools/build/rootfs-overlay
 
-.PHONY: all setup build clean run run-gui run-debug test menuconfig help
+.PHONY: all setup build clean run run-gui run-debug run-desktop test menuconfig help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -59,6 +59,9 @@ run-gui: ## Launch Claude-OS in QEMU with graphical display
 
 run-debug: ## Launch Claude-OS in QEMU with GDB server
 	@./tools/emulator/run-qemu.sh --debug
+
+run-desktop: ## Run Claude-OS visual demo on desktop (requires pygame)
+	@python3 run_desktop.py
 
 test: ## Run the test suite
 	@python3 -m pytest tests/ -v --tb=short

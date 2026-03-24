@@ -1,0 +1,19 @@
+[Unit]
+Description=Claude-OS Visual Compositor
+After=claude-bridge.service
+Wants=claude-bridge.service
+ConditionPathExists=/opt/claude-os/system/compositor/claude_os_ui.py
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/claude-os/system/compositor/claude_os_ui.py
+Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=DISPLAY_WIDTH=480
+Environment=DISPLAY_HEIGHT=960
+Environment=PYTHONPATH=/opt/claude-os/ui/toolkit:/opt/claude-os/ui/screens:/opt/claude-os/ui/apps:/opt/claude-os/ui/vision:/opt/claude-os/ui/compositor:/opt/claude-os/ui/display
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target
