@@ -272,6 +272,7 @@ class StatusBar:
         typo = theme.typography if theme else None
         spacing = theme.spacing if theme else None
         layout = theme.layout if theme else None
+        icons = theme.icons if theme else None
         effects = theme.effects if theme else None
 
         return {
@@ -310,14 +311,14 @@ class StatusBar:
                     "charging": self.state.battery_charging,
                     "state": self.state.battery_state.name,
                     "color": self._get_battery_color(),
-                    "icon_width": layout.statusbar_battery_width if layout else 25,
-                    "icon_height": layout.statusbar_battery_height if layout else 12,
+                    "icon_width": icons.statusbar_battery_width if icons else 25,
+                    "icon_height": icons.statusbar_battery_height if icons else 12,
                 },
                 "wifi": {
                     "connected": self.state.wifi_connected,
                     "strength": self.state.wifi_strength.value,
                     "color": colors.statusbar_icon if colors else "#5A5A72",
-                    "icon_size": layout.statusbar_icon_size if layout else 16,
+                    "icon_size": icons.statusbar_icon_size if icons else 16,
                 },
                 "notifications": {
                     "count": self.state.notification_count,
