@@ -312,12 +312,14 @@ def main():
 
     pygame.init()
 
-    # Create window at 2x scale for readability on desktop
-    SCALE = 2
+    # Create resizable window — default 1x scale, fits most screens
+    SCALE = 1
     display_w = SCREEN_W * SCALE
     display_h = SCREEN_H * SCALE
 
-    screen = pygame.display.set_mode((display_w, display_h))
+    screen = pygame.display.set_mode(
+        (display_w, display_h), pygame.RESIZABLE
+    )
     pygame.display.set_caption(WINDOW_TITLE)
     clock = pygame.time.Clock()
 
@@ -326,6 +328,15 @@ def main():
     # Create a pygame surface for the phone screen
     phone_surface = pygame.Surface((SCREEN_W, SCREEN_H))
 
+    # Track current display size for coordinate mapping
+    cur_w, cur_h = display_w, display_h
+
+    def mouse_to_phone(pos):
+        """Map window mouse coordinates to phone coordinates."""
+        mx = int(pos[0] * SCREEN_W / cur_w)
+        my = int(pos[1] * SCREEN_H / cur_h)
+        return max(0, min(mx, SCREEN_W - 1)), max(0, min(my, SCREEN_H - 1))
+
     running = True
     while running:
         # Handle events
@@ -333,21 +344,23 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
 
+            elif event.type == pygame.VIDEORESIZE:
+                cur_w, cur_h = event.w, event.h
+                screen = pygame.display.set_mode(
+                    (cur_w, cur_h), pygame.RESIZABLE
+                )
+
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                # Scale mouse coordinates
-                mx = event.pos[0] // SCALE
-                my = event.pos[1] // SCALE
+                mx, my = mouse_to_phone(event.pos)
                 os_app.handle_mouse_down(mx, my)
 
             elif event.type == pygame.MOUSEBUTTONUP:
-                mx = event.pos[0] // SCALE
-                my = event.pos[1] // SCALE
+                mx, my = mouse_to_phone(event.pos)
                 os_app.handle_mouse_up(mx, my)
 
             elif event.type == pygame.MOUSEMOTION:
                 if pygame.mouse.get_pressed()[0]:
-                    mx = event.pos[0] // SCALE
-                    my = event.pos[1] // SCALE
+                    mx, my = mouse_to_phone(event.pos)
                     os_app.handle_mouse_motion(mx, my)
 
             elif event.type == pygame.KEYDOWN:
@@ -374,7 +387,7 @@ def main():
         )
 
         # Scale up and blit to display
-        scaled = pygame.transform.scale(phone_surface, (display_w, display_h))
+        scaled = pygame.transform.scale(phone_surface, (cur_w, cur_h))
         screen.blit(scaled, (0, 0))
         pygame.display.flip()
 
@@ -387,7 +400,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print("  Claude-OS Desktop Demo")
     print("  " + "=" * 56)
-    print(f"  Resolution: {SCREEN_W}x{SCREEN_H} @ {FPS}fps (2x scaled)")
+    print(f"  Resolution: {SCREEN_W}x{SCREEN_H} @ {FPS}fps (resizable)")
     print()
     print("  Controls:")
     print("    Mouse click     = Touch tap")
