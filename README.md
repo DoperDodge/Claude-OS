@@ -8,6 +8,8 @@ Claude-OS is an ambitious open-source project to build a fully functional mobile
 
 A mobile OS where Claude isn't just an app — it **is** the OS. Every interaction, from managing WiFi to launching apps, can be driven through natural language. The system is lightweight, privacy-respecting, and built on open standards.
 
+**Target path:** QEMU VM → Google Pixel hardware.
+
 ---
 
 ## Current Status
@@ -30,6 +32,11 @@ Claude-OS currently boots to a **text-only terminal** in QEMU. The system servic
 - QEMU launches with `-nographic` (no display window)
 - Voice engine is scaffolded but not connected to real speech libraries
 
+**Porting roadmap:**
+- **Stage 1:** Fully functional graphical OS running in QEMU VM (Phases 1–7)
+- **Stage 2:** Validated on x86_64 and ARM64 VMs with GPU passthrough (Phase 8)
+- **Stage 3:** Ported to Google Pixel hardware (Phases 9–12)
+
 ---
 
 ## Architecture Overview
@@ -38,6 +45,12 @@ Claude-OS currently boots to a **text-only terminal** in QEMU. The system servic
 ┌─────────────────────────────────────────────┐
 │              Claude Mobile App              │  ← Primary UI & AI layer
 │         (Voice, Chat, Vision, Tools)        │
+├─────────────────────────────────────────────┤
+│             UI / Compositor Layer           │  ← Wayland + widget toolkit
+│   ┌──────────┐  ┌──────────┐  ┌─────────┐  │
+│   │ Wayland  │  │  Widget  │  │   OSK   │  │
+│   │Compositor│  │ Toolkit  │  │Keyboard │  │
+│   └──────────┘  └──────────┘  └─────────┘  │
 ├─────────────────────────────────────────────┤
 │            System Services Layer            │  ← OS services exposed to Claude
 │   ┌──────────┐  ┌──────────┐  ┌─────────┐  │
@@ -51,28 +64,42 @@ Claude-OS currently boots to a **text-only terminal** in QEMU. The system servic
 ├─────────────────────────────────────────────┤
 │         Hardware Abstraction Layer          │  ← Drivers & firmware
 │        (Linux Kernel / Android HAL)         │
-├─────────────────────────────────────────────┤
-│               Hardware (SoC)                │  ← Target device
-└─────────────────────────────────────────────┘
+├──────────────────────┬──────────────────────┤
+│   QEMU VM (virtio)   │  Google Pixel (SoC)  │
+│  virtio-gpu, net,    │  Tensor G1/G2/G3,    │
+│  tablet, balloon     │  Mali GPU, Shannon   │
+│  Software rendering  │  modem, sensors      │
+└──────────────────────┴──────────────────────┘
 ```
 
 ---
 
-## Visual OS Plan
+## Visual OS & Hardware Porting Plan
 
-This is the complete plan for turning Claude-OS from a text terminal into a fully visual, phone-like operating system running in QEMU with a graphical display.
+This is the complete roadmap for turning Claude-OS from a text terminal into a fully visual, phone-like operating system — first running in a QEMU VM, then ported to Google Pixel hardware.
+
+---
+
+### STAGE 1 — Graphical OS in QEMU VM (Phases 1–7)
+
+> Goal: A fully functional, phone-like graphical OS running in a virtual machine.
+
+---
 
 ### Phase 1 — Framebuffer Display in QEMU
 
 Get pixels on screen. No toolkit, no compositor — just proof that we can draw to a display.
 
 - [ ] Switch QEMU from `-nographic` to `-device virtio-gpu-pci -display gtk` (or SDL)
-- [ ] Add `virtio-gpu`, `drm`, and `fbdev` support to the kernel defconfig
+- [ ] Verify kernel defconfig has `CONFIG_DRM_VIRTIO_GPU=y` and `CONFIG_FB=y` (already present)
+- [ ] Add `mesa3d` (software renderer, `llvmpipe`) to the Buildroot config
 - [ ] Write a minimal framebuffer test program (`/dev/fb0` or DRM) that draws a colored rectangle
 - [ ] Verify the QEMU window opens and shows graphics output
 - [ ] Add a `make run-gui` target that launches QEMU with a graphical window
+- [ ] Add a `make run-gui-sdl` target for headless environments (SDL display)
+- [ ] Configure QEMU virtio-tablet device for absolute pointer input (mouse/touch)
 
-**Deliverable:** QEMU opens a window, a colored rectangle is drawn on screen.
+**Deliverable:** QEMU opens a window, a colored rectangle is drawn on screen. Mouse cursor works.
 
 ### Phase 2 — Wayland Compositor (Minimal)
 
@@ -84,6 +111,7 @@ Get a real compositor running so we can render application windows.
 - [ ] Compositor launches on boot and displays a solid background color
 - [ ] Verify a Wayland client can connect and render a window
 - [ ] Mouse/keyboard input passes through from QEMU to Wayland clients
+- [ ] Configure `XDG_RUNTIME_DIR` and Wayland socket correctly in systemd
 
 **Deliverable:** Compositor runs, Wayland clients can render, input works.
 
@@ -101,6 +129,7 @@ Build the foundation for drawing actual UI elements (buttons, text, layouts).
 - [ ] Font rendering with a system font (e.g., Noto Sans)
 - [ ] Theme system with colors, spacing, and typography constants
 - [ ] Touch/click event propagation through the widget tree
+- [ ] Resolution-independent layout system (dp/sp units for Pixel portability)
 
 **Deliverable:** Can render text, buttons, and scrollable containers on screen.
 
@@ -179,7 +208,7 @@ Make it feel smooth and modern.
 - [ ] Loading spinners and skeleton screens
 - [ ] Haptic-style visual feedback (button press ripple effect)
 - [ ] Dark mode / light mode theme toggle
-- [ ] Adaptive layout for different screen sizes
+- [ ] Adaptive layout for different screen sizes (VM and Pixel resolutions)
 
 **Deliverable:** The OS feels responsive and polished, not janky.
 
@@ -200,24 +229,182 @@ Claude can see and interact with the visual OS.
 
 **Deliverable:** Claude is deeply visual — it sees the screen, renders rich UI, and creates dynamic interfaces.
 
-### Phase 8 — Hardware & Real Device
+---
 
-Move beyond QEMU to a physical phone.
+### STAGE 2 — VM Hardening & Portability (Phase 8)
 
-- [ ] PinePhone / PinePhone Pro support:
-  - Display driver (DSI panel)
-  - Touchscreen driver
-  - Modem support (cellular calls, SMS, data)
-  - GPS, sensors (accelerometer, gyroscope, proximity, ambient light)
-  - Camera (rear + front)
-  - Audio (speaker, earpiece, headphone jack)
-- [ ] Hardware GPU acceleration (Mali)
-- [ ] Power management tuned for battery life
-- [ ] SD card hot-plug support
-- [ ] USB-C: charging, OTG, display out
-- [ ] Flashable image (`.img` file for dd / Tow-Boot)
+> Goal: Validate the OS across VM environments and prepare for real hardware.
 
-**Deliverable:** Claude-OS runs on a real phone you can hold in your hand.
+---
+
+### Phase 8 — VM Portability & GPU Passthrough
+
+Ensure Claude-OS runs reliably across VM environments and can leverage real GPUs.
+
+- [ ] **x86_64 VM support:** Create a secondary Buildroot defconfig targeting x86_64 QEMU
+  - Kernel defconfig: `kernel/qemu_x86_64_defconfig`
+  - Buildroot config: `tools/build/claude_os_x86_64_defconfig`
+  - `make build-x86` and `make run-gui-x86` targets
+- [ ] **VirtualBox / VMware support:**
+  - Generate `.ova` and `.vmdk` images from the Buildroot output
+  - Add VirtualBox Guest Additions and VMware Tools to the build
+  - `make export-ova` target for one-click VM image generation
+- [ ] **GPU passthrough (QEMU/KVM):**
+  - Document PCI passthrough setup for NVIDIA/AMD GPUs
+  - Test with `virgl` (Virgil 3D) for GPU-accelerated rendering in QEMU
+  - Verify Wayland compositor works with hardware-accelerated Mesa
+- [ ] **Automated VM testing:**
+  - QEMU boot-to-UI smoke test in CI (headless with virtual framebuffer)
+  - Screenshot comparison tests (render expected UI, compare bitmaps)
+- [ ] **Shared folder / host integration:**
+  - 9P virtio-fs for sharing files between host and VM
+  - Clipboard sharing via `spice-vdagent` (SPICE protocol)
+- [ ] **ISO image generation:**
+  - `make iso` target that produces a bootable `.iso` for any VM
+  - UEFI boot support (OVMF firmware)
+
+**Deliverable:** Claude-OS runs in QEMU, VirtualBox, and VMware. GPU acceleration works. Distributable `.iso` and `.ova` images.
+
+---
+
+### STAGE 3 — Google Pixel Hardware Port (Phases 9–12)
+
+> Goal: Run Claude-OS natively on Google Pixel phones.
+
+---
+
+### Phase 9 — Pixel Kernel & Boot Chain
+
+Get the Linux kernel booting on a Google Pixel (starting with Pixel 6/7/8 — Google Tensor SoC).
+
+- [ ] **Android kernel fork:**
+  - Fork the Google Android kernel source for the target Pixel device
+  - Branch: `android-gs-raviole-6.x` (Pixel 6) or `android-gs-tangorpro-6.x` (Pixel 7+)
+  - Create `kernel/pixel_defconfig` with Tensor SoC support
+- [ ] **Bootloader integration:**
+  - Use the stock Pixel bootloader (unlocked via `fastboot oem unlock`)
+  - Build a boot image (`boot.img`) compatible with the Pixel boot chain
+  - Generic Kernel Image (GKI) compliance for kernel module loading
+  - Support A/B partition scheme used by Pixels
+- [ ] **Device tree / Device Tree Overlays (DTBOs):**
+  - Include Google-provided DTBs for display, touch, sensors
+  - Custom DTBO for Claude-OS-specific configuration
+- [ ] **Minimal userspace on Pixel:**
+  - `init` → systemd → serial console over USB (adb-style)
+  - Verify kernel boots and reaches a shell prompt
+  - Bring up USB gadget mode for host communication during development
+- [ ] **Buildroot Pixel profile:**
+  - `tools/build/claude_os_pixel_defconfig` — Pixel-specific package set
+  - Cross-compile toolchain targeting `aarch64` with Tensor-specific flags
+  - `make build-pixel` and `make flash-pixel` targets
+
+**Deliverable:** Linux kernel boots on a Pixel phone, reaches a shell prompt over USB.
+
+### Phase 10 — Pixel Display, Touch & Core Hardware
+
+Bring up the display, touchscreen, and essential hardware on the Pixel.
+
+- [ ] **Display (Samsung AMOLED panel):**
+  - DSI display driver (from Android kernel source)
+  - DRM/KMS integration for Wayland compositor
+  - Correct resolution: 1080×2400 (Pixel 6) / 1080×2340 (Pixel 7/8)
+  - Panel backlight control via sysfs
+  - 90Hz / 120Hz refresh rate support (device-dependent)
+- [ ] **Touchscreen (Goodix / SEC):**
+  - Multi-touch driver with 10-point touch support
+  - Touch event routing through libinput to Wayland compositor
+  - Gesture recognition (swipe, pinch, long-press)
+- [ ] **GPU (Mali G78 / Immortalis):**
+  - Mali GPU driver (Panthor/Panfrost for open-source, or ARM binary blobs)
+  - Mesa integration for OpenGL ES / Vulkan
+  - Verify GPU-accelerated Wayland rendering
+- [ ] **Wi-Fi & Bluetooth (Broadcom BCM4389):**
+  - Load firmware blobs from `/vendor` partition or bundled in rootfs
+  - Verify `wpa_supplicant` connects to real Wi-Fi networks
+  - BlueZ integration for Bluetooth
+- [ ] **USB-C:**
+  - Charging detection and battery management (via fuel gauge driver)
+  - USB gadget mode (ADB-like shell, file transfer)
+  - USB host mode (OTG peripherals)
+- [ ] **Audio (Cirrus Logic CS35L41 / CS40L26):**
+  - ALSA/PipeWire audio routing
+  - Speaker, earpiece, and headphone output
+  - Microphone input (for voice commands)
+
+**Deliverable:** Pixel shows the Claude-OS UI on its display. Touch, Wi-Fi, audio, and GPU work.
+
+### Phase 11 — Pixel Telephony & Sensors
+
+Turn the Pixel into a full phone running Claude-OS.
+
+- [ ] **Cellular modem (Samsung Shannon / Exynos modem):**
+  - RIL (Radio Interface Layer) or `oFono` integration
+  - Voice calls (dialer app)
+  - SMS send/receive
+  - Mobile data (LTE/5G) with APN configuration
+  - SIM card detection and management
+  - Claude integration: *"Call Mom"*, *"Send a text to John"*
+- [ ] **GPS / Location:**
+  - GNSS driver (GPS, GLONASS, Galileo)
+  - Location services daemon
+  - Claude integration: *"Where am I?"*, *"Navigate to..."*
+- [ ] **Sensors:**
+  - Accelerometer + gyroscope (screen rotation, motion gestures)
+  - Proximity sensor (screen off during calls)
+  - Ambient light sensor (auto-brightness)
+  - Barometer
+  - Fingerprint reader (under-display, Pixel 6+) — for lock screen auth
+- [ ] **Camera (Google camera ISP):**
+  - Rear camera basic capture (photo, video)
+  - Front camera for selfies / video calls
+  - Camera2 API or V4L2 integration
+  - Claude vision: *"What am I looking at?"*
+- [ ] **NFC:**
+  - NFC tag reading
+  - Future: contactless payments, device pairing
+- [ ] **Haptics (vibration motor):**
+  - Haptic feedback for keyboard presses, notifications
+  - Pattern-based vibration for calls and alarms
+
+**Deliverable:** Full phone functionality — calls, texts, data, GPS, camera, sensors all working.
+
+### Phase 12 — Pixel Release & Distribution
+
+Ship a flashable Claude-OS image for Google Pixel phones.
+
+- [ ] **Flashable image pipeline:**
+  - `make pixel-image` generates a complete set of partition images
+  - `make flash-pixel` flashes via `fastboot` (boot, system, vendor, dtbo)
+  - Factory reset support (wipe userdata, keep OS)
+  - Dual-boot option: Claude-OS alongside stock Android (A/B slots)
+- [ ] **OTA updates:**
+  - Update server for over-the-air OS updates
+  - A/B seamless updates (update inactive slot, reboot to switch)
+  - Rollback on failed update
+  - Claude-managed updates: *"Is there an update available?"*
+- [ ] **Battery optimization:**
+  - Power governor tuned for Tensor SoC
+  - Suspend-to-RAM with fast wake
+  - Per-app battery usage tracking
+  - Adaptive brightness and refresh rate
+  - Target: full-day battery life
+- [ ] **Security hardening for Pixel:**
+  - Verified boot (dm-verity on system partition)
+  - SELinux policy for Claude-OS services
+  - Titan M2 security chip integration (hardware-backed keystore)
+  - Monthly security patch cadence
+- [ ] **Pixel model support matrix:**
+  - [ ] Pixel 6 / 6 Pro (GS101 Tensor)
+  - [ ] Pixel 7 / 7 Pro (GS201 Tensor G2)
+  - [ ] Pixel 8 / 8 Pro (GS301 Tensor G3)
+  - [ ] Pixel 9 / 9 Pro (Tensor G4) — stretch goal
+- [ ] **User documentation:**
+  - Unlock bootloader guide
+  - Flash instructions (Linux, macOS, Windows)
+  - Known issues and workarounds per device
+  - Reverting to stock Android guide
+
+**Deliverable:** Anyone with a supported Pixel can download an image, flash it, and run Claude-OS as their daily driver.
 
 ---
 
@@ -307,31 +494,52 @@ Move beyond QEMU to a physical phone.
 - [x] Conversation history and persistence
 - [x] System tool registration
 
-### Milestone 6 — Visual OS 🚧 **← WE ARE HERE**
-- [ ] Framebuffer / GPU display in QEMU
-- [ ] Working Wayland compositor
-- [ ] UI toolkit and widget system
-- [ ] Lock screen, home screen, status bar
-- [ ] On-screen keyboard
-- [ ] Claude chat UI with message bubbles
-- [ ] Notification panel
-- [ ] App drawer
+### Milestone 6 — Visual OS in VM 🚧 **← WE ARE HERE**
+- [ ] Framebuffer / GPU display in QEMU (Phase 1)
+- [ ] Working Wayland compositor (Phase 2)
+- [ ] UI toolkit and widget system (Phase 3)
+- [ ] Lock screen, home screen, status bar (Phase 4)
+- [ ] On-screen keyboard (Phase 4d)
+- [ ] Claude chat UI with message bubbles (Phase 4b)
+- [ ] Notification panel (Phase 4e)
+- [ ] App drawer (Phase 4f)
 
 ### Milestone 7 — App Ecosystem
-- [ ] App framework with window management
+- [ ] App framework with window management (Phase 5)
 - [ ] Built-in system apps (Settings, Files, Browser, Terminal)
 - [ ] App install/uninstall
 
-### Milestone 8 — Polish
-- [ ] Animations and transitions
+### Milestone 8 — Polish & VM Distribution
+- [ ] Animations and transitions (Phase 6)
 - [ ] Dark/light theme
-- [ ] Accessibility
-- [ ] OTA updates
+- [ ] Claude visual integration — screenshots, rich UI (Phase 7)
+- [ ] VM portability — VirtualBox, VMware `.ova` images (Phase 8)
+- [ ] GPU passthrough and virgl acceleration (Phase 8)
+- [ ] Bootable `.iso` image generation
 
-### Milestone 9 — Real Hardware
-- [ ] PinePhone support
-- [ ] Hardware drivers (modem, camera, GPS, sensors)
-- [ ] Flashable image
+### Milestone 9 — Pixel Kernel & Boot 📱
+- [ ] Android kernel fork for Google Tensor SoC (Phase 9)
+- [ ] Boot chain integration with Pixel bootloader
+- [ ] Device tree and DTBO support
+- [ ] `make build-pixel` and `make flash-pixel` targets
+- [ ] Shell prompt over USB on Pixel hardware
+
+### Milestone 10 — Pixel Display & Core Hardware 📱
+- [ ] AMOLED display driver (DSI panel) (Phase 10)
+- [ ] Multi-touch input via Goodix/SEC driver
+- [ ] Mali GPU acceleration (Panfrost/Panthor)
+- [ ] Wi-Fi, Bluetooth, USB-C, audio on real hardware
+
+### Milestone 11 — Pixel Full Phone 📱
+- [ ] Cellular modem — calls, SMS, mobile data (Phase 11)
+- [ ] GPS, sensors, camera, NFC, haptics
+- [ ] Claude telephony integration (*"Call Mom"*, *"Text John"*)
+
+### Milestone 12 — Pixel Release 📱
+- [ ] Flashable image pipeline for Pixel 6/7/8/9 (Phase 12)
+- [ ] OTA updates with A/B seamless switching
+- [ ] Security hardening (verified boot, Titan M2, SELinux)
+- [ ] User-facing flash guide and documentation
 
 ---
 
@@ -339,14 +547,20 @@ Move beyond QEMU to a physical phone.
 
 | Decision | Choice | Status |
 |---|---|---|
-| Target hardware | **QEMU ARM64** (PinePhone later) | Decided |
+| VM target | **QEMU ARM64** (primary dev environment) | Decided |
+| Hardware target | **Google Pixel 6/7/8** (Tensor SoC) | Decided |
 | Base system | **Buildroot** (minimal, customizable) | Decided |
+| Pixel kernel | **Android kernel fork** (GKI-based) | Decided |
 | Display server | **Wayland** (wlroots-based compositor) | Decided |
+| GPU (VM) | **Mesa llvmpipe** (software) + **virgl** (accelerated) | Decided |
+| GPU (Pixel) | **Panfrost/Panthor** (open-source Mali) or ARM blobs | **To decide** |
 | IPC | **Unix sockets** (daemons) + **HTTP/WebSocket** (bridge) | Decided |
 | UI toolkit | TBD: Python+Cairo, GTK4, LVGL, or Flutter | **To decide** |
 | Claude integration | Cloud API (on-device later) | Decided |
 | App runtime | TBD: Native, WebView, or container | **To decide** |
 | App packaging | TBD: Custom `.cpk`, Flatpak, or AppImage | **To decide** |
+| Distribution | `.iso` (VM) + `fastboot` images (Pixel) | Decided |
+| Telephony (Pixel) | TBD: oFono or Android RIL | **To decide** |
 
 ---
 
@@ -408,17 +622,41 @@ make setup    # Downloads Buildroot
 make build    # Compiles everything (~30-60 min first time)
 
 # Run in QEMU (text mode — current default)
-make run      # Boots Claude-OS in terminal mode
+make run          # Boots Claude-OS in terminal mode
 
 # Run in QEMU with graphical display (coming soon)
-# make run-gui  # Boots with a visual display window
+# make run-gui      # Boots with a visual display window (GTK)
+# make run-gui-sdl  # Boots with a visual display window (SDL, for headless/SSH)
+
+# VM distribution (coming soon)
+# make iso          # Generate bootable .iso image
+# make export-ova   # Generate .ova for VirtualBox/VMware
+
+# Google Pixel build (coming later)
+# make build-pixel  # Cross-compile for Pixel hardware
+# make flash-pixel  # Flash to connected Pixel via fastboot
 ```
+
+---
+
+## Supported Targets
+
+| Target | Status | Build Command | Output |
+|---|---|---|---|
+| QEMU ARM64 (text) | **Working** | `make build && make run` | Terminal in QEMU |
+| QEMU ARM64 (GUI) | **Phase 1** | `make build && make run-gui` | Graphical window |
+| QEMU x86_64 (GUI) | **Phase 8** | `make build-x86 && make run-gui-x86` | Graphical window |
+| VirtualBox / VMware | **Phase 8** | `make export-ova` | `.ova` image |
+| Bootable ISO | **Phase 8** | `make iso` | `.iso` image |
+| Google Pixel 6 | **Phase 9–12** | `make build-pixel DEVICE=pixel6` | Fastboot images |
+| Google Pixel 7 | **Phase 9–12** | `make build-pixel DEVICE=pixel7` | Fastboot images |
+| Google Pixel 8 | **Phase 9–12** | `make build-pixel DEVICE=pixel8` | Fastboot images |
 
 ---
 
 ## Contributing
 
-This project is in active development. The backend services are functional and the next major focus is **building the visual OS** (Milestone 6). Contributions, ideas, and feedback are welcome.
+This project is in active development. The backend services are functional and the next major focus is **building the visual OS in a VM** (Milestone 6), with a long-term goal of **running natively on Google Pixel phones** (Milestones 9–12). Contributions, ideas, and feedback are welcome.
 
 ---
 
