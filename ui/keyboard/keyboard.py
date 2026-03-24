@@ -1,17 +1,21 @@
 """
 Claude-OS On-Screen Keyboard
 
-A virtual keyboard rendered as a Wayland layer-shell surface.
-Appears from the bottom of the screen when a text input is focused.
+A themed virtual keyboard rendered as a Wayland layer-shell surface.
+Appears from the bottom with spring animation when a text input is focused.
 
-Supports:
-- QWERTY layout (with shift/symbols/emoji layers)
-- Touch input with visual feedback
-- Predictive text suggestions bar
-- Swipe-to-type gesture input
-- Key repeat on long press
+Visual Design:
+    ┌──────────────────────────────────────────────────┐
+    │  [hello]    [help]    [hey]                      │  <- Suggestion bar
+    ├──────────────────────────────────────────────────┤
+    │  q  w  e  r  t  y  u  i  o  p                   │  <- Rows with rounded keys
+    │   a  s  d  f  g  h  j  k  l                      │     Key press: scale + color
+    │  [^]  z  x  c  v  b  n  m  [<-]                  │     Special: sand background
+    │  [123] [,] [        space        ] [.] [->]       │
+    └──────────────────────────────────────────────────┘
 
-Sends key events via the Wayland input-method protocol.
+Uses theme tokens for: key colors, shadows, corner radii, suggestion bar
+styling, press animations, and spring-based show/hide transitions.
 """
 
 import asyncio
@@ -29,6 +33,7 @@ class KeyboardLayer(Enum):
     UPPERCASE = auto()
     NUMBERS = auto()
     SYMBOLS = auto()
+    EMOJI = auto()
 
 
 @dataclass
@@ -43,20 +48,16 @@ class Key:
 # Standard QWERTY layouts
 LAYOUTS = {
     KeyboardLayer.LOWERCASE: [
-        # Row 1
         [Key("q", "q"), Key("w", "w"), Key("e", "e"), Key("r", "r"),
          Key("t", "t"), Key("y", "y"), Key("u", "u"), Key("i", "i"),
          Key("o", "o"), Key("p", "p")],
-        # Row 2
         [Key("a", "a"), Key("s", "s"), Key("d", "d"), Key("f", "f"),
          Key("g", "g"), Key("h", "h"), Key("j", "j"), Key("k", "k"),
          Key("l", "l")],
-        # Row 3
         [Key("^", "shift", width=1.5, special=True),
          Key("z", "z"), Key("x", "x"), Key("c", "c"), Key("v", "v"),
          Key("b", "b"), Key("n", "n"), Key("m", "m"),
          Key("<-", "backspace", width=1.5, special=True)],
-        # Row 4
         [Key("123", "numbers", width=1.5, special=True),
          Key(",", ","),
          Key(" ", "space", width=5.0),
@@ -119,33 +120,50 @@ LAYOUTS = {
 
 class OnScreenKeyboard:
     """
-    Virtual keyboard for Claude-OS.
+    Themed virtual keyboard for Claude-OS.
 
-    Renders as a Wayland layer-shell surface anchored to the bottom
-    of the screen. Handles touch events and sends key codes to the
-    focused text input via Wayland's input-method-v2 protocol.
+    Renders as a Wayland layer-shell surface anchored to the bottom.
+    All visual properties come from the design system tokens.
     """
-
-    HEIGHT = 300  # Total keyboard height in logical pixels
-    SUGGESTION_BAR_HEIGHT = 40
-    KEY_MARGIN = 4
-    KEY_RADIUS = 8  # Corner radius
 
     def __init__(self):
         self.layer = KeyboardLayer.LOWERCASE
         self.visible = False
         self.suggestions: list[str] = []
 
+        # Load theme
+        try:
+            from ui.theme import get_theme
+            self._theme = get_theme()
+        except ImportError:
+            self._theme = None
+
         # Key repeat
         self._repeat_key: Key | None = None
         self._repeat_task: asyncio.Task | None = None
-        self._repeat_delay = 0.4  # Initial delay
-        self._repeat_rate = 0.05  # Repeat interval
+        self._repeat_delay = 0.4
+        self._repeat_rate = 0.05
+
+        # Animation state
+        self._show_progress = 0.0  # 0=hidden, 1=fully shown
+        self._pressed_key_code: str | None = None
 
         # Callbacks
-        self._on_key = None        # Called when a character key is pressed
-        self._on_special = None    # Called for special keys (enter, backspace)
-        self._on_suggestion = None # Called when a suggestion is tapped
+        self._on_key = None
+        self._on_special = None
+        self._on_suggestion = None
+
+    @property
+    def height(self) -> int:
+        if self._theme:
+            return self._theme.layout.keyboard_height
+        return 291
+
+    @property
+    def suggestion_bar_height(self) -> int:
+        if self._theme:
+            return self._theme.layout.keyboard_suggestion_bar_height
+        return 44
 
     def set_key_handler(self, on_key, on_special=None, on_suggestion=None):
         """Set callbacks for key events."""
@@ -154,14 +172,16 @@ class OnScreenKeyboard:
         self._on_suggestion = on_suggestion
 
     def show(self):
-        """Show the keyboard."""
+        """Show the keyboard with spring animation."""
         self.visible = True
         self.layer = KeyboardLayer.LOWERCASE
+        self._show_progress = 1.0
         logger.info("Keyboard shown")
 
     def hide(self):
-        """Hide the keyboard."""
+        """Hide the keyboard with ease-out animation."""
         self.visible = False
+        self._show_progress = 0.0
         self._cancel_repeat()
         logger.info("Keyboard hidden")
 
@@ -170,32 +190,27 @@ class OnScreenKeyboard:
         return LAYOUTS.get(self.layer, LAYOUTS[KeyboardLayer.LOWERCASE])
 
     def handle_touch(self, x: int, y: int, action: str = "down"):
-        """
-        Handle a touch event on the keyboard surface.
-
-        Args:
-            x: Touch X coordinate relative to keyboard surface
-            y: Touch Y coordinate relative to keyboard surface
-            action: "down", "up", or "move"
-        """
+        """Handle a touch event on the keyboard surface."""
         if not self.visible:
             return
 
         if action == "up":
+            self._pressed_key_code = None
             self._cancel_repeat()
             return
 
         # Check suggestion bar first
-        if y < self.SUGGESTION_BAR_HEIGHT:
+        if y < self.suggestion_bar_height:
             self._handle_suggestion_tap(x)
             return
 
         # Find which key was hit
-        key = self._hit_test(x, y - self.SUGGESTION_BAR_HEIGHT)
+        key = self._hit_test(x, y - self.suggestion_bar_height)
         if key is None:
             return
 
         if action == "down":
+            self._pressed_key_code = key.code
             self._press_key(key)
 
     def _press_key(self, key: Key):
@@ -205,7 +220,6 @@ class OnScreenKeyboard:
         else:
             if self._on_key:
                 self._on_key(key.code)
-            # Auto-lowercase after typing a character in uppercase mode
             if self.layer == KeyboardLayer.UPPERCASE:
                 self.layer = KeyboardLayer.LOWERCASE
 
@@ -216,29 +230,21 @@ class OnScreenKeyboard:
                 self.layer = KeyboardLayer.UPPERCASE
             else:
                 self.layer = KeyboardLayer.LOWERCASE
-
         elif key.code == "numbers":
             self.layer = KeyboardLayer.NUMBERS
-
         elif key.code == "symbols":
             self.layer = KeyboardLayer.SYMBOLS
-
         elif key.code == "letters":
             self.layer = KeyboardLayer.LOWERCASE
-
         elif key.code in ("backspace", "enter"):
             if self._on_special:
                 self._on_special(key.code)
 
     def _hit_test(self, x: int, y: int) -> Key | None:
-        """
-        Determine which key is at the given coordinates.
-
-        Calculates key positions based on the layout grid, accounting
-        for variable key widths.
-        """
+        """Determine which key is at the given coordinates."""
         layout = self.get_current_layout()
-        row_height = (self.HEIGHT - self.SUGGESTION_BAR_HEIGHT) / len(layout)
+        key_area_height = self.height - self.suggestion_bar_height
+        row_height = key_area_height / len(layout)
 
         row_index = int(y / row_height)
         if row_index < 0 or row_index >= len(layout):
@@ -246,8 +252,6 @@ class OnScreenKeyboard:
 
         row = layout[row_index]
         total_width = sum(k.width for k in row)
-
-        # Assume keyboard surface is 1080px wide (logical)
         keyboard_width = 1080
         unit_width = keyboard_width / total_width
 
@@ -264,8 +268,6 @@ class OnScreenKeyboard:
         """Handle tap on the suggestion bar."""
         if not self.suggestions:
             return
-
-        # Divide suggestion bar into equal sections
         section_width = 1080 / len(self.suggestions)
         index = int(x / section_width)
         if 0 <= index < len(self.suggestions):
@@ -275,7 +277,7 @@ class OnScreenKeyboard:
 
     def update_suggestions(self, suggestions: list[str]):
         """Update the predictive text suggestions."""
-        self.suggestions = suggestions[:3]  # Show max 3 suggestions
+        self.suggestions = suggestions[:3]
 
     def _cancel_repeat(self):
         """Cancel any active key repeat."""
@@ -285,29 +287,67 @@ class OnScreenKeyboard:
             self._repeat_key = None
 
     def get_render_data(self) -> dict:
-        """
-        Return all data needed to render the keyboard.
+        """Return themed render data for external renderers."""
+        theme = self._theme
+        colors = theme.colors if theme else None
+        typo = theme.typography if theme else None
+        spacing = theme.spacing if theme else None
+        effects = theme.effects if theme else None
+        anim = theme.animation if theme else None
 
-        Used by external renderers (Cairo, Skia, etc.)
-        """
         layout = self.get_current_layout()
+
         return {
             "visible": self.visible,
-            "height": self.HEIGHT,
-            "suggestion_bar_height": self.SUGGESTION_BAR_HEIGHT,
-            "suggestions": self.suggestions,
+            "height": self.height,
+            "show_progress": self._show_progress,
             "layer": self.layer.name,
-            "rows": [
-                [{"label": k.label, "code": k.code,
-                  "width": k.width, "special": k.special}
-                 for k in row]
-                for row in layout
-            ],
+            "suggestion_bar": {
+                "height": self.suggestion_bar_height,
+                "suggestions": self.suggestions,
+                "background": colors.suggestion_background if colors else "rgba(232,213,196,0.6)",
+                "text_color": colors.suggestion_text if colors else "#1A1A2E",
+                "divider_color": colors.suggestion_divider if colors else "rgba(212,165,116,0.3)",
+                "text_size": typo.suggestion_size if typo else 15.0,
+                "text_weight": typo.suggestion_weight if typo else 500,
+                "radius": spacing.suggestion_radius if spacing else 12,
+            },
+            "keys": {
+                "rows": [
+                    [{"label": k.label, "code": k.code,
+                      "width": k.width, "special": k.special,
+                      "pressed": k.code == self._pressed_key_code}
+                     for k in row]
+                    for row in layout
+                ],
+                "background": colors.key_background if colors else "#FFFFFF",
+                "special_background": colors.key_special_background if colors else "#E8D5C4",
+                "pressed_color": colors.key_pressed if colors else "#D4A574",
+                "text_color": colors.key_text if colors else "#1A1A2E",
+                "shadow": {
+                    "offset": effects.key_shadow_offset if effects else (0, 1, 1, 0),
+                    "opacity": effects.key_shadow_opacity if effects else 0.15,
+                },
+                "radius": spacing.key_radius if spacing else 8,
+                "margin": spacing.key_margin if spacing else 3,
+                "label_size": typo.key_label_size if typo else 23.0,
+                "label_weight": typo.key_label_weight if typo else 400,
+                "special_label_size": typo.key_special_label_size if typo else 16.0,
+                "special_label_weight": typo.key_special_label_weight if typo else 500,
+            },
+            "animation": {
+                "show_duration": anim.keyboard_show_duration if anim else 0.35,
+                "show_curve": anim.keyboard_show_curve if anim else (0.16, 1.0, 0.3, 1.0),
+                "hide_duration": anim.keyboard_hide_duration if anim else 0.28,
+                "hide_curve": anim.keyboard_hide_curve if anim else (0.42, 0.0, 0.58, 1.0),
+                "key_press_scale": anim.key_press_scale if anim else 0.92,
+                "key_press_duration": anim.key_press_duration if anim else 0.08,
+            },
         }
 
 
 def main():
-    """Standalone keyboard process (layer-shell surface)."""
+    """Standalone keyboard process."""
     logging.basicConfig(level=logging.INFO)
     keyboard = OnScreenKeyboard()
 
