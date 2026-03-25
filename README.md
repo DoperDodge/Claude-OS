@@ -119,23 +119,22 @@ Get a real compositor running that renders to the display.
 
 **Deliverable:** Compositor runs, renders themed background with surface placeholders, input devices work.
 
-### Phase 3 — UI Toolkit & Basic Rendering
+### Phase 3 — UI Toolkit & Basic Rendering ✅
 
 Build the foundation for drawing actual UI elements (buttons, text, layouts).
 
-- [ ] Choose a UI rendering approach:
-  - **Option A:** Python + Cairo/Pango (draw to Wayland buffers directly)
-  - **Option B:** GTK4 with Wayland backend (heavier but full widget set)
-  - **Option C:** LVGL (lightweight, designed for embedded, C-based)
-  - **Option D:** Flutter for Embedded Linux (Dart, GPU-accelerated)
-- [ ] Implement a base `Widget` class with layout, drawing, and input handling
-- [ ] Core widgets: `Label`, `Button`, `TextInput`, `ScrollView`, `Container`
-- [ ] Font rendering with a system font (e.g., Noto Sans)
-- [ ] Theme system with colors, spacing, and typography constants
-- [ ] Touch/click event propagation through the widget tree
-- [ ] Resolution-independent layout system (dp/sp units for Pixel portability)
+- [x] Rendering approach: **Python + Cairo** (leverages existing Cairo renderer)
+- [x] Base `Widget` class with measure → layout → render cycle and touch handling
+- [x] Core widgets: `Label` (word-wrap, alignment), `Button` (press feedback, styles), `TextInput` (cursor, focus, placeholder), `IconButton` (circular glyph buttons)
+- [x] Layout widgets: `VStack`, `HStack` (flex layout with spacers), `Container`, `Padding`, `Spacer`
+- [x] `ScrollView` with drag scrolling, momentum deceleration, scroll indicator
+- [x] Font rendering via Cairo text API (sans-serif, bold/normal weights)
+- [x] Full theme integration: all widgets use theme colors, spacing, typography tokens
+- [x] Touch event propagation through widget hierarchy (top-most child first)
+- [x] Compositor builds a widget tree for the home screen (status bar, welcome, buttons, chat input)
+- [x] Widget tree renders directly to Cairo context in the 30fps render loop
 
-**Deliverable:** Can render text, buttons, and scrollable containers on screen.
+**Deliverable:** Text, buttons, input fields, and scrollable containers render with theme styling. Home screen shows Claude greeting with interactive UI elements.
 
 ### Phase 4 — Phone UI Shell
 

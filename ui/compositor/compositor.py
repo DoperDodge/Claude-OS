@@ -32,7 +32,6 @@ Display pipeline:
                 -> Pixels on screen
 """
 
-import json
 import logging
 import os
 import signal
@@ -170,6 +169,9 @@ class Compositor:
         self._renderer = None
         self._backend = "stub"  # "fbdev", "drm", or "stub"
         self._running = False
+
+        # Widget tree for UI rendering (built on first frame)
+        self._widget_root = None
 
         # IPC socket for UI component communication
         self._ipc_socket = None
@@ -600,6 +602,175 @@ class Compositor:
             },
         }
 
+    # --- Widget UI ---
+
+    def _build_widget_ui(self):
+        """
+        Build the widget tree for the home screen UI.
+
+        This renders real themed UI elements (status bar, app area
+        with Claude greeting, text input, buttons) using the widget
+        toolkit instead of the placeholder scene graph.
+        """
+        try:
+            from ui.widgets.base import Container
+            from ui.widgets.text import Label, TextInput
+            from ui.widgets.buttons import Button
+            from ui.widgets.layout import VStack, HStack, Spacer, Padding
+        except ImportError:
+            logger.warning("Widget toolkit not available")
+            return None
+
+        theme = self._theme
+        colors = theme.colors if theme else None
+        spacing = theme.spacing if theme else None
+        layout = theme.layout if theme else None
+
+        w = self.config.width
+        h = self.config.height
+
+        # Root container — full screen with theme background
+        root = VStack(
+            background=colors.background if colors else "#FAF6F1",
+        )
+
+        # --- Status Bar ---
+        status_bar = HStack(
+            spacing=spacing.statusbar_item_gap if spacing else 6,
+            background=colors.statusbar_background if colors else "rgba(250, 246, 241, 0.85)",
+            padding=spacing.statusbar_padding_h if spacing else 16,
+        )
+        time_label = Label(
+            text=time.strftime("%H:%M"),
+            font_size=15.0,
+            weight="bold",
+            color=colors.statusbar_text if colors else "#1A1A2E",
+        )
+        status_bar.add(time_label)
+        status_bar.add(Spacer())
+        status_bar.add(Label(
+            text="Claude-OS",
+            font_size=12.0,
+            color=colors.text_secondary if colors else "#5A5A72",
+            align="center",
+        ))
+        status_bar.add(Spacer())
+        status_bar.add(Label(
+            text="100%",
+            font_size=12.0,
+            color=colors.statusbar_text if colors else "#1A1A2E",
+            align="right",
+        ))
+        root.add(status_bar)
+
+        # --- App Content Area ---
+        app_area = VStack(
+            spacing=spacing.md if spacing else 16,
+            padding=spacing.page_margin if spacing else 16,
+        )
+
+        # Welcome message
+        app_area.add(Spacer(min_size=40))
+        app_area.add(Label(
+            text="Hello.",
+            font_size=34.0,
+            weight="bold",
+            color=colors.text_primary if colors else "#1A1A2E",
+        ))
+        app_area.add(Label(
+            text="I'm Claude, your AI assistant.",
+            font_size=20.0,
+            color=colors.text_secondary if colors else "#5A5A72",
+        ))
+
+        app_area.add(Spacer(min_size=32))
+
+        # Quick action buttons
+        btn_row = HStack(spacing=spacing.sm if spacing else 8)
+        btn_row.add(Button(
+            label="What can you do?",
+            style="secondary",
+            corner_radius=spacing.radius_pill if spacing else 999,
+            height=40,
+            font_size=14.0,
+        ))
+        btn_row.add(Button(
+            label="Settings",
+            style="secondary",
+            corner_radius=spacing.radius_pill if spacing else 999,
+            height=40,
+            font_size=14.0,
+        ))
+        app_area.add(btn_row)
+
+        app_area.add(Spacer())
+
+        root.add(app_area)
+
+        # --- Chat Input Bar ---
+        input_bar = HStack(
+            spacing=spacing.sm if spacing else 8,
+            padding=spacing.page_margin if spacing else 16,
+            background=colors.surface if colors else "#FFFFFF",
+        )
+        chat_input = TextInput(
+            placeholder="Message Claude...",
+            font_size=17.0,
+            height=48,
+            corner_radius=layout.chat_input_radius if layout else 24,
+        )
+        input_bar.add(chat_input)
+        send_btn = Button(
+            label="Send",
+            style="primary",
+            corner_radius=12,
+            height=48,
+            font_size=15.0,
+        )
+        input_bar.add(send_btn)
+        root.add(input_bar)
+
+        # --- Home Indicator ---
+        indicator_bar = Container(padding=spacing.sm if spacing else 8)
+        # The home indicator pill is rendered by the scene graph
+
+        root.add(indicator_bar)
+
+        # Layout the entire tree
+        root.layout(0, 0, w, h)
+
+        self._widget_root = root
+        logger.info("Widget UI built (%d widgets)", self._count_widgets(root))
+        return root
+
+    def _count_widgets(self, widget) -> int:
+        """Count total widgets in tree."""
+        count = 1
+        if hasattr(widget, 'children'):
+            for child in widget.children:
+                count += self._count_widgets(child)
+        return count
+
+    def _render_widgets(self, ctx):
+        """Render the widget tree to a Cairo context."""
+        if self._widget_root is None:
+            self._build_widget_ui()
+        if self._widget_root:
+            # Update time in status bar
+            self._update_status_time()
+            self._widget_root.render(ctx)
+
+    def _update_status_time(self):
+        """Update the clock label in the status bar."""
+        if self._widget_root and hasattr(self._widget_root, 'children'):
+            for child in self._widget_root.children:
+                if hasattr(child, 'children'):
+                    for subchild in child.children:
+                        if hasattr(subchild, 'text') and hasattr(subchild, 'weight'):
+                            if subchild.weight == "bold" and len(subchild.text) <= 5:
+                                subchild.text = time.strftime("%H:%M")
+                                return
+
     # --- Render Loop ---
 
     def _render_loop(self):
@@ -609,12 +780,11 @@ class Compositor:
         """
         logger.info("Render loop started (%d fps target)", self.TARGET_FPS)
 
-        # Start in HOME state with a placeholder app surface
+        # Start in HOME state
         self.set_state(CompositorState.HOME)
-        self.add_surface("statusbar", role=SurfaceRole.STATUS_BAR,
-                         app_id="statusbar")
-        self.add_surface("claude-app", role=SurfaceRole.APP,
-                         app_id="claude-app")
+
+        # Build the widget UI for the home screen
+        self._build_widget_ui()
 
         frame_count = 0
         fps_timer = time.monotonic()
@@ -622,11 +792,17 @@ class Compositor:
         while self._running:
             frame_start = time.monotonic()
 
-            # Build and render the scene
-            scene = self.render_frame()
-            if scene and self._renderer:
-                self._renderer.render(scene)
-                self._renderer.present()
+            if self._renderer and self.display_on:
+                # Render widget tree directly to the renderer's Cairo context
+                if (self._widget_root and self._renderer._cairo_ctx):
+                    self._render_widgets(self._renderer._cairo_ctx)
+                    self._renderer.present()
+                else:
+                    # Fallback: use scene graph
+                    scene = self.render_frame()
+                    if scene:
+                        self._renderer.render(scene)
+                        self._renderer.present()
 
             frame_count += 1
 
