@@ -173,6 +173,15 @@ class Compositor:
         # Widget tree for UI rendering (built on first frame)
         self._widget_root = None
 
+        # Screen view instances (managed by _build_widget_ui)
+        self._lock_view = None
+        self._status_bar_view = None
+        self._home_view = None
+        self._keyboard_view = None
+        self._notification_view = None
+        self._app_drawer_view = None
+        self._last_built_state = None
+
         # IPC socket for UI component communication
         self._ipc_socket = None
         self._ipc_path = None
@@ -606,141 +615,113 @@ class Compositor:
 
     def _build_widget_ui(self):
         """
-        Build the widget tree for the home screen UI.
+        Build the widget tree for the current compositor state.
 
-        This renders real themed UI elements (status bar, app area
-        with Claude greeting, text input, buttons) using the widget
-        toolkit instead of the placeholder scene graph.
+        Creates screen views based on self.state:
+        - LOCKED: LockScreenView
+        - HOME: StatusBarView + HomeView
+        - APP_DRAWER: StatusBarView + AppDrawerView
+        - NOTIFICATION_SHADE: StatusBarView + NotificationView
+        - APP: StatusBarView + HomeView (default app)
+
+        Also manages the keyboard overlay when visible.
         """
         try:
             from ui.widgets.base import Container
-            from ui.widgets.text import Label, TextInput
-            from ui.widgets.buttons import Button
-            from ui.widgets.layout import VStack, HStack, Spacer, Padding
+            from ui.widgets.layout import VStack
         except ImportError:
             logger.warning("Widget toolkit not available")
             return None
 
-        theme = self._theme
-        colors = theme.colors if theme else None
-        spacing = theme.spacing if theme else None
-        layout = theme.layout if theme else None
-
         w = self.config.width
         h = self.config.height
 
-        # Root container — full screen with theme background
+        theme = self._theme
+        colors = theme.colors if theme else None
+
         root = VStack(
             background=colors.background if colors else "#FAF6F1",
         )
 
-        # --- Status Bar ---
-        status_bar = HStack(
-            spacing=spacing.statusbar_item_gap if spacing else 6,
-            background=colors.statusbar_background if colors else "rgba(250, 246, 241, 0.85)",
-            padding=spacing.statusbar_padding_h if spacing else 16,
-        )
-        time_label = Label(
-            text=time.strftime("%H:%M"),
-            font_size=15.0,
-            weight="bold",
-            color=colors.statusbar_text if colors else "#1A1A2E",
-        )
-        status_bar.add(time_label)
-        status_bar.add(Spacer())
-        status_bar.add(Label(
-            text="Claude-OS",
-            font_size=12.0,
-            color=colors.text_secondary if colors else "#5A5A72",
-            align="center",
-        ))
-        status_bar.add(Spacer())
-        status_bar.add(Label(
-            text="100%",
-            font_size=12.0,
-            color=colors.statusbar_text if colors else "#1A1A2E",
-            align="right",
-        ))
-        root.add(status_bar)
-
-        # --- App Content Area ---
-        app_area = VStack(
-            spacing=spacing.md if spacing else 16,
-            padding=spacing.page_margin if spacing else 16,
-        )
-
-        # Welcome message
-        app_area.add(Spacer(min_size=40))
-        app_area.add(Label(
-            text="Hello.",
-            font_size=34.0,
-            weight="bold",
-            color=colors.text_primary if colors else "#1A1A2E",
-        ))
-        app_area.add(Label(
-            text="I'm Claude, your AI assistant.",
-            font_size=20.0,
-            color=colors.text_secondary if colors else "#5A5A72",
-        ))
-
-        app_area.add(Spacer(min_size=32))
-
-        # Quick action buttons
-        btn_row = HStack(spacing=spacing.sm if spacing else 8)
-        btn_row.add(Button(
-            label="What can you do?",
-            style="secondary",
-            corner_radius=spacing.radius_pill if spacing else 999,
-            height=40,
-            font_size=14.0,
-        ))
-        btn_row.add(Button(
-            label="Settings",
-            style="secondary",
-            corner_radius=spacing.radius_pill if spacing else 999,
-            height=40,
-            font_size=14.0,
-        ))
-        app_area.add(btn_row)
-
-        app_area.add(Spacer())
-
-        root.add(app_area)
-
-        # --- Chat Input Bar ---
-        input_bar = HStack(
-            spacing=spacing.sm if spacing else 8,
-            padding=spacing.page_margin if spacing else 16,
-            background=colors.surface if colors else "#FFFFFF",
-        )
-        chat_input = TextInput(
-            placeholder="Message Claude...",
-            font_size=17.0,
-            height=48,
-            corner_radius=layout.chat_input_radius if layout else 24,
-        )
-        input_bar.add(chat_input)
-        send_btn = Button(
-            label="Send",
-            style="primary",
-            corner_radius=12,
-            height=48,
-            font_size=15.0,
-        )
-        input_bar.add(send_btn)
-        root.add(input_bar)
-
-        # --- Home Indicator ---
-        indicator_bar = Container(padding=spacing.sm if spacing else 8)
-        # The home indicator pill is rendered by the scene graph
-
-        root.add(indicator_bar)
+        if self.state == CompositorState.LOCKED:
+            root = self._build_lock_screen(w, h)
+        elif self.state == CompositorState.NOTIFICATION_SHADE:
+            root = self._build_notification_shade(w, h)
+        elif self.state == CompositorState.APP_DRAWER:
+            root = self._build_app_drawer(w, h)
+        else:
+            # HOME or APP state
+            root = self._build_home_screen(w, h)
 
         # Layout the entire tree
         root.layout(0, 0, w, h)
 
         self._widget_root = root
-        logger.info("Widget UI built (%d widgets)", self._count_widgets(root))
+        logger.info("Widget UI built: state=%s (%d widgets)",
+                     self.state.name, self._count_widgets(root))
+        return root
+
+    def _build_lock_screen(self, w, h):
+        """Build the lock screen widget tree."""
+        from ui.screens.lock_screen_view import LockScreenView
+        self._lock_view = LockScreenView(w, h)
+        return self._lock_view
+
+    def _build_home_screen(self, w, h):
+        """Build status bar + home chat screen."""
+        from ui.widgets.layout import VStack
+        from ui.screens.status_bar_view import StatusBarView
+        from ui.screens.home_view import HomeView
+
+        root = VStack()
+        self._status_bar_view = StatusBarView(w, self.STATUS_BAR_HEIGHT)
+        root.add(self._status_bar_view)
+
+        content_h = h - self.STATUS_BAR_HEIGHT
+        if self.keyboard_visible:
+            content_h -= self.KEYBOARD_HEIGHT
+
+        self._home_view = HomeView(w, content_h, self.STATUS_BAR_HEIGHT)
+        root.add(self._home_view)
+
+        if self.keyboard_visible:
+            from ui.screens.keyboard_view import KeyboardView
+            self._keyboard_view = KeyboardView(w, self.KEYBOARD_HEIGHT)
+            self._keyboard_view.visible = True
+            root.add(self._keyboard_view)
+
+        return root
+
+    def _build_notification_shade(self, w, h):
+        """Build status bar + notification panel."""
+        from ui.widgets.layout import VStack
+        from ui.screens.status_bar_view import StatusBarView
+        from ui.screens.notification_view import NotificationView
+
+        root = VStack()
+        self._status_bar_view = StatusBarView(w, self.STATUS_BAR_HEIGHT)
+        root.add(self._status_bar_view)
+
+        self._notification_view = NotificationView(
+            w, h, self.STATUS_BAR_HEIGHT)
+        root.add(self._notification_view)
+
+        return root
+
+    def _build_app_drawer(self, w, h):
+        """Build status bar + app drawer."""
+        from ui.widgets.layout import VStack
+        from ui.screens.status_bar_view import StatusBarView
+        from ui.screens.app_drawer_view import AppDrawerView
+
+        root = VStack()
+        self._status_bar_view = StatusBarView(w, self.STATUS_BAR_HEIGHT)
+        root.add(self._status_bar_view)
+
+        self._app_drawer_view = AppDrawerView(
+            w, h, self.STATUS_BAR_HEIGHT)
+        root.add(self._app_drawer_view)
+
         return root
 
     def _count_widgets(self, widget) -> int:
@@ -751,27 +732,51 @@ class Compositor:
                 count += self._count_widgets(child)
         return count
 
+    def _rebuild_if_state_changed(self):
+        """Rebuild widget tree if compositor state changed since last build."""
+        if not hasattr(self, '_last_built_state'):
+            self._last_built_state = None
+        if self.state != self._last_built_state:
+            self._build_widget_ui()
+            self._last_built_state = self.state
+
     def _render_widgets(self, ctx):
         """Render the widget tree to a Cairo context."""
+        self._rebuild_if_state_changed()
         if self._widget_root is None:
             self._build_widget_ui()
         if self._widget_root:
-            # Update time in status bar
-            self._update_status_time()
+            self._update_screen_views()
             self._widget_root.render(ctx)
 
-    def _update_status_time(self):
-        """Update the clock label in the status bar."""
-        if self._widget_root and hasattr(self._widget_root, 'children'):
-            for child in self._widget_root.children:
-                if hasattr(child, 'children'):
-                    for subchild in child.children:
-                        if hasattr(subchild, 'text') and hasattr(subchild, 'weight'):
-                            if subchild.weight == "bold" and len(subchild.text) <= 5:
-                                subchild.text = time.strftime("%H:%M")
-                                return
+    def _update_screen_views(self):
+        """Update active screen views (clock, typing indicator, etc.)."""
+        if hasattr(self, '_status_bar_view') and self._status_bar_view:
+            self._status_bar_view.update()
+        if hasattr(self, '_lock_view') and self._lock_view:
+            self._lock_view.update()
+        if hasattr(self, '_home_view') and self._home_view:
+            self._home_view.update()
 
     # --- Render Loop ---
+
+    def _handle_default_gesture(self, gesture: str, data: dict):
+        """Handle gestures for state transitions between screens."""
+        if gesture == "swipe_up" and self.state == CompositorState.LOCKED:
+            self.unlock()
+        elif gesture == "swipe_up" and self.state == CompositorState.HOME:
+            self.set_state(CompositorState.APP_DRAWER)
+        elif gesture == "swipe_down" and self.state == CompositorState.APP_DRAWER:
+            self.set_state(CompositorState.HOME)
+        elif gesture == "notification_shade" and self.state != CompositorState.LOCKED:
+            self.set_state(CompositorState.NOTIFICATION_SHADE)
+        elif gesture == "go_home":
+            if self.state == CompositorState.LOCKED:
+                self.unlock()
+            else:
+                self.set_state(CompositorState.HOME)
+        elif gesture == "swipe_up" and self.state == CompositorState.NOTIFICATION_SHADE:
+            self.set_state(CompositorState.HOME)
 
     def _render_loop(self):
         """
@@ -780,10 +785,14 @@ class Compositor:
         """
         logger.info("Render loop started (%d fps target)", self.TARGET_FPS)
 
-        # Start in HOME state
-        self.set_state(CompositorState.HOME)
+        # Set default gesture handler if none set
+        if not self._on_gesture:
+            self._on_gesture = self._handle_default_gesture
 
-        # Build the widget UI for the home screen
+        # Start in LOCKED state
+        self.set_state(CompositorState.LOCKED)
+
+        # Build the widget UI for the current state
         self._build_widget_ui()
 
         frame_count = 0
