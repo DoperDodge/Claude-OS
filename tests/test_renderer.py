@@ -15,7 +15,7 @@ from ui.compositor.compositor import (
     Surface,
     SurfaceRole,
 )
-from ui.renderer.drm_renderer import DRMRenderer, _parse_hex_color
+from ui.renderer.drm_renderer import DRMRenderer, FBDevDisplay, _parse_hex_color
 
 
 class TestColorParsing:
@@ -60,6 +60,7 @@ class TestRendererInit:
         assert renderer.initialized
         assert renderer.width == 540
         assert renderer.height == 1170
+        assert renderer._backend == "headless"
         renderer.shutdown()
 
     def test_default_dimensions(self):
@@ -75,6 +76,13 @@ class TestRendererInit:
         renderer.initialize(headless=False)
         assert renderer.initialized
         assert renderer._headless
+        assert renderer._backend == "headless"
+        renderer.shutdown()
+
+    def test_backend_property(self):
+        renderer = DRMRenderer()
+        renderer.initialize(headless=True)
+        assert renderer._backend == "headless"
         renderer.shutdown()
 
 
@@ -152,6 +160,35 @@ class TestRendering:
         assert scene is not None
         renderer.render(scene)
 
+    def test_present_headless_noop(self, renderer):
+        """present() should be a no-op in headless mode (no crash)."""
+        scene = SceneNode(
+            background_color="#FAF6F1",
+            width=1080, height=2340,
+        )
+        renderer.render(scene)
+        renderer.present()  # Should not raise
+
+
+class TestFBDevDisplay:
+    """Test FBDevDisplay initialization (unit tests without real device)."""
+
+    def test_fbdev_display_init(self):
+        display = FBDevDisplay("/dev/fb_nonexistent")
+        assert display.fd == -1
+        assert display.width == 0
+        assert display.height == 0
+
+    def test_fbdev_close_safe(self):
+        """close() should be safe to call even if never opened."""
+        display = FBDevDisplay()
+        display.close()  # Should not raise
+
+    def test_present_without_mmap(self):
+        """present() should be safe without an mmap."""
+        display = FBDevDisplay()
+        display.present(b"\x00" * 100, 10, 10)  # Should not raise
+
 
 class TestPNGExport:
     """Test PNG file export."""
@@ -194,4 +231,4 @@ class TestDisplayManagerDetection:
         ))
         from display_manager_compat import detect_display_backend_safe
         result = detect_display_backend_safe()
-        assert result in ("drm", "stub")
+        assert result in ("drm", "fbdev", "stub")

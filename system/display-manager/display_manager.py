@@ -3,18 +3,21 @@ Claude-OS Display Manager
 
 Daemon that coordinates the compositor, status bar, and keyboard.
 Acts as the session manager — launches the compositor, then starts
-UI components as Wayland clients.
+UI components once the compositor is ready.
 
 Boot sequence:
     1. systemd starts display-manager
-    2. Display manager detects display backend (DRM or stub)
-    3. Display manager starts compositor (Wayland server)
-    4. Compositor exports WAYLAND_DISPLAY
-    5. Display manager launches: status bar, keyboard, Claude app
+    2. Display manager detects display backend (DRM/fbdev or stub)
+    3. Display manager ensures XDG_RUNTIME_DIR exists
+    4. Display manager starts compositor process
+    5. Compositor initializes display (fbdev/DRM) and creates IPC socket
+    6. Compositor creates wayland-0 marker file
+    7. Display manager detects marker and launches UI components
 
 Display backends:
-    - DRM: Real framebuffer rendering via /dev/dri/card0 (QEMU --gui mode)
-    - Stub: No display, services run but nothing is drawn (text mode)
+    - fbdev: Framebuffer rendering via /dev/fb0 (QEMU --gui with virtio-gpu)
+    - drm: Direct rendering via /dev/dri/card0 (alternative path)
+    - stub: No display, services run but nothing is drawn (text mode)
 """
 
 import asyncio
@@ -38,8 +41,8 @@ class DisplayManager:
     """
     Manages the display session lifecycle.
 
-    Starts the compositor, then launches UI components as Wayland clients
-    once the compositor is ready.
+    Starts the compositor, then launches UI components once
+    the compositor is ready.
     """
 
     def __init__(self):
@@ -47,22 +50,22 @@ class DisplayManager:
         self._child_procs: list[subprocess.Popen] = []
         self._running = False
         self._wayland_display = "wayland-0"
-        self._display_backend = "stub"  # "drm" or "stub"
+        self._display_backend = "stub"  # "drm", "fbdev", or "stub"
 
     @staticmethod
     def detect_display_backend() -> str:
         """Detect available display backend."""
+        # Check for fbdev device (available with DRM_FBDEV_EMULATION)
+        if os.path.exists("/dev/fb0"):
+            logger.info("Framebuffer device found: /dev/fb0")
+            return "fbdev"
+
         # Check for DRM device (present when QEMU has virtio-gpu)
         drm_devices = ["/dev/dri/card0", "/dev/dri/card1"]
         for dev in drm_devices:
             if os.path.exists(dev):
                 logger.info("DRM device found: %s", dev)
                 return "drm"
-
-        # Check for framebuffer device (fbdev emulation)
-        if os.path.exists("/dev/fb0"):
-            logger.info("Framebuffer device found: /dev/fb0")
-            return "drm"  # Use DRM path, fbdev is emulated via DRM
 
         logger.info("No display device found, using stub backend")
         return "stub"
@@ -76,13 +79,17 @@ class DisplayManager:
         self._display_backend = self.detect_display_backend()
         logger.info("Display backend: %s", self._display_backend)
 
-        # Step 1: Start the compositor
+        # Step 1: Ensure runtime directory exists
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/run/user/0")
+        os.makedirs(runtime_dir, exist_ok=True)
+
+        # Step 2: Start the compositor
         await self._start_compositor()
 
-        # Step 2: Wait for Wayland socket to appear
+        # Step 3: Wait for compositor to be ready
         await self._wait_for_compositor()
 
-        # Step 3: Launch UI components
+        # Step 4: Launch UI components
         await self._launch_ui()
 
         logger.info("Display session is ready (backend=%s)", self._display_backend)
@@ -91,9 +98,9 @@ class DisplayManager:
         await self._monitor()
 
     async def _start_compositor(self):
-        """Start the Wayland compositor."""
+        """Start the compositor process."""
         env = os.environ.copy()
-        env["XDG_RUNTIME_DIR"] = "/run/user/0"
+        env["XDG_RUNTIME_DIR"] = os.environ.get("XDG_RUNTIME_DIR", "/run/user/0")
         env["DISPLAY_WIDTH"] = os.environ.get("DISPLAY_WIDTH", "1080")
         env["DISPLAY_HEIGHT"] = os.environ.get("DISPLAY_HEIGHT", "2340")
         env["CLAUDE_OS_DISPLAY_BACKEND"] = self._display_backend
@@ -105,27 +112,30 @@ class DisplayManager:
             env=env,
         )
 
-    async def _wait_for_compositor(self, timeout: float = 10.0):
-        """Wait for the Wayland socket to become available."""
+    async def _wait_for_compositor(self, timeout: float = 15.0):
+        """Wait for the compositor to become ready."""
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/run/user/0")
         socket_path = os.path.join(runtime_dir, self._wayland_display)
+        ipc_path = os.path.join(runtime_dir, "claude-compositor")
 
         start = time.monotonic()
         while time.monotonic() - start < timeout:
-            if os.path.exists(socket_path):
-                logger.info("Compositor ready (socket: %s)", socket_path)
+            # Check for either the wayland-0 marker or the IPC socket
+            if os.path.exists(socket_path) or os.path.exists(ipc_path):
+                logger.info("Compositor ready (marker found)")
                 os.environ["WAYLAND_DISPLAY"] = self._wayland_display
                 return
             if self._compositor_proc.poll() is not None:
-                raise RuntimeError("Compositor exited unexpectedly")
+                raise RuntimeError("Compositor exited unexpectedly (code=%d)" %
+                                   self._compositor_proc.returncode)
             await asyncio.sleep(0.1)
 
-        # If socket doesn't appear, proceed anyway (stub mode)
-        logger.warning("Compositor socket not found after %.1fs, "
+        # If marker doesn't appear, proceed anyway (stub mode)
+        logger.warning("Compositor marker not found after %.1fs, "
                        "proceeding in stub mode", timeout)
 
     async def _launch_ui(self):
-        """Launch UI components as Wayland clients."""
+        """Launch UI components."""
         env = os.environ.copy()
         env["WAYLAND_DISPLAY"] = self._wayland_display
         env["XDG_RUNTIME_DIR"] = os.environ.get("XDG_RUNTIME_DIR", "/run/user/0")
@@ -163,7 +173,6 @@ class DisplayManager:
                 if proc.poll() is not None:
                     logger.warning("Child process %d exited (code: %d)",
                                    proc.pid, proc.returncode)
-                    # Could restart individual components here
 
             await asyncio.sleep(2)
 

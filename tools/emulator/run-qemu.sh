@@ -106,10 +106,11 @@ case "$DISPLAY_MODE" in
             # Kernel console on both serial AND virtual framebuffer
             -append "root=/dev/vda console=ttyAMA0 console=tty0 rw"
 
-            # Virtio GPU — provides DRM device in guest (/dev/dri/card0)
-            -device virtio-gpu-pci
+            # Virtio GPU — provides DRM device + fbdev in guest
+            # xres/yres sets the initial display resolution
+            -device virtio-gpu-pci,xres=1080,yres=2340
 
-            # Display backend
+            # Display backend (gtk shows a window, sdl works headless)
             -display "$DISPLAY_MODE"
 
             # Virtio tablet — absolute pointer (like a touchscreen)

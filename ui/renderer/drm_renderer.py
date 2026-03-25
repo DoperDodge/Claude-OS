@@ -1,19 +1,20 @@
 """
-Claude-OS DRM Framebuffer Renderer
+Claude-OS DRM/fbdev Framebuffer Renderer
 
-Renders the compositor's scene graph to a DRM framebuffer using Cairo
-for 2D drawing. This is the bridge between the abstract scene graph
-(SceneNode tree) and actual pixels on screen via /dev/dri/card0.
+Renders the compositor's scene graph to the display using either:
+  1. Linux fbdev (/dev/fb0) — simple mmap framebuffer (preferred for QEMU)
+  2. DRM/KMS (/dev/dri/card0) — full modesetting with dumb buffers
+  3. Headless — in-memory rendering for testing and PNG export
 
 Rendering pipeline:
     Compositor.build_scene_graph() -> SceneNode tree
         -> DRMRenderer.render(scene_graph)
             -> Cairo draws to memory buffer
-                -> Buffer copied to DRM framebuffer
+                -> present() copies buffer to display framebuffer
                     -> Pixels on screen
 
-Fallback: If DRM is not available (e.g., running in -nographic mode),
-the renderer operates in "headless" mode and can dump frames to PNG.
+The renderer also handles VT (virtual terminal) switching to take
+exclusive control of the display away from the kernel's fbcon.
 """
 
 import ctypes
@@ -27,6 +28,8 @@ import sys
 from pathlib import Path
 
 logger = logging.getLogger("drm_renderer")
+
+# --- Linux ioctl constants ---
 
 # DRM ioctl numbers (from linux/drm.h)
 DRM_IOCTL_BASE = 0x64
@@ -48,6 +51,19 @@ def _IOC(direction, type_val, nr, size):
 
 def _IOWR(type_val, nr, size):
     return _IOC(_IOC_READ | _IOC_WRITE, type_val, nr, size)
+
+
+# fbdev ioctl numbers (from linux/fb.h)
+FBIOGET_VSCREENINFO = 0x4600
+FBIOPUT_VSCREENINFO = 0x4601
+FBIOGET_FSCREENINFO = 0x4602
+
+# VT/KD ioctl numbers (from linux/kd.h, linux/vt.h)
+KDSETMODE = 0x4B3A
+KD_TEXT = 0x00
+KD_GRAPHICS = 0x01
+VT_ACTIVATE = 0x5606
+VT_WAITACTIVE = 0x5607
 
 
 # DRM mode structures
@@ -80,6 +96,71 @@ class DrmModeDestroyDumb(ctypes.Structure):
 DRM_IOCTL_MODE_CREATE_DUMB = _IOWR(DRM_IOCTL_BASE, 0xB2, ctypes.sizeof(DrmModeCreateDumb))
 DRM_IOCTL_MODE_MAP_DUMB = _IOWR(DRM_IOCTL_BASE, 0xB3, ctypes.sizeof(DrmModeMapDumb))
 DRM_IOCTL_MODE_DESTROY_DUMB = _IOWR(DRM_IOCTL_BASE, 0xB4, ctypes.sizeof(DrmModeDestroyDumb))
+
+
+# --- fbdev screen info structures ---
+
+class FbBitfield(ctypes.Structure):
+    _fields_ = [
+        ("offset", ctypes.c_uint32),
+        ("length", ctypes.c_uint32),
+        ("msb_right", ctypes.c_uint32),
+    ]
+
+
+class FbVarScreeninfo(ctypes.Structure):
+    _fields_ = [
+        ("xres", ctypes.c_uint32),
+        ("yres", ctypes.c_uint32),
+        ("xres_virtual", ctypes.c_uint32),
+        ("yres_virtual", ctypes.c_uint32),
+        ("xoffset", ctypes.c_uint32),
+        ("yoffset", ctypes.c_uint32),
+        ("bits_per_pixel", ctypes.c_uint32),
+        ("grayscale", ctypes.c_uint32),
+        ("red", FbBitfield),
+        ("green", FbBitfield),
+        ("blue", FbBitfield),
+        ("transp", FbBitfield),
+        ("nonstd", ctypes.c_uint32),
+        ("activate", ctypes.c_uint32),
+        ("height", ctypes.c_uint32),
+        ("width", ctypes.c_uint32),
+        ("accel_flags", ctypes.c_uint32),
+        ("pixclock", ctypes.c_uint32),
+        ("left_margin", ctypes.c_uint32),
+        ("right_margin", ctypes.c_uint32),
+        ("upper_margin", ctypes.c_uint32),
+        ("lower_margin", ctypes.c_uint32),
+        ("hsync_len", ctypes.c_uint32),
+        ("vsync_len", ctypes.c_uint32),
+        ("sync", ctypes.c_uint32),
+        ("vmode", ctypes.c_uint32),
+        ("rotate", ctypes.c_uint32),
+        ("colorspace", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32 * 4),
+    ]
+
+
+class FbFixScreeninfo(ctypes.Structure):
+    _fields_ = [
+        ("id", ctypes.c_char * 16),
+        ("smem_start", ctypes.c_ulong),
+        ("smem_len", ctypes.c_uint32),
+        ("type", ctypes.c_uint32),
+        ("type_aux", ctypes.c_uint32),
+        ("visual", ctypes.c_uint32),
+        ("xpanstep", ctypes.c_uint16),
+        ("ypanstep", ctypes.c_uint16),
+        ("xwrapstep", ctypes.c_uint16),
+        ("_pad", ctypes.c_uint16),
+        ("line_length", ctypes.c_uint32),
+        ("mmio_start", ctypes.c_ulong),
+        ("mmio_len", ctypes.c_uint32),
+        ("accel", ctypes.c_uint32),
+        ("capabilities", ctypes.c_uint16),
+        ("reserved", ctypes.c_uint16 * 2),
+    ]
 
 
 def _parse_hex_color(color_str: str) -> tuple:
@@ -164,14 +245,127 @@ class DRMFramebuffer:
             fcntl.ioctl(self.fd, DRM_IOCTL_MODE_DESTROY_DUMB, destroy)
 
 
+class FBDevDisplay:
+    """
+    Linux framebuffer device (/dev/fb0) display backend.
+
+    Opens the fbdev device, queries its resolution, mmaps the framebuffer
+    memory, and provides a present() method to copy rendered pixels to
+    the display. Also handles VT switching to take over the display.
+    """
+
+    def __init__(self, device_path="/dev/fb0"):
+        self.device_path = device_path
+        self.fd = -1
+        self.width = 0
+        self.height = 0
+        self.stride = 0
+        self.bpp = 0
+        self.fb_size = 0
+        self._fb_mmap = None
+        self._tty_fd = -1
+
+    def open(self):
+        """Open the fbdev device and query display parameters."""
+        self.fd = os.open(self.device_path, os.O_RDWR)
+
+        # Query variable screen info (resolution, bpp)
+        var_info = FbVarScreeninfo()
+        fcntl.ioctl(self.fd, FBIOGET_VSCREENINFO, var_info)
+        self.width = var_info.xres
+        self.height = var_info.yres
+        self.bpp = var_info.bits_per_pixel
+
+        # Query fixed screen info (stride, memory size)
+        fix_info = FbFixScreeninfo()
+        fcntl.ioctl(self.fd, FBIOGET_FSCREENINFO, fix_info)
+        self.stride = fix_info.line_length
+        self.fb_size = fix_info.smem_len
+
+        # Memory-map the framebuffer
+        self._fb_mmap = mmap.mmap(
+            self.fd, self.fb_size,
+            mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE,
+        )
+
+        logger.info("fbdev opened: %s (%dx%d, %dbpp, stride=%d, size=%d)",
+                     self.device_path, self.width, self.height,
+                     self.bpp, self.stride, self.fb_size)
+
+    def acquire_vt(self):
+        """Switch VT to graphics mode to take over the display from fbcon."""
+        try:
+            self._tty_fd = os.open("/dev/tty0", os.O_RDWR)
+            fcntl.ioctl(self._tty_fd, KDSETMODE, KD_GRAPHICS)
+            logger.info("VT switched to graphics mode")
+        except OSError as e:
+            logger.warning("Could not switch VT to graphics mode: %s", e)
+            self._tty_fd = -1
+
+    def release_vt(self):
+        """Restore VT to text mode."""
+        if self._tty_fd >= 0:
+            try:
+                fcntl.ioctl(self._tty_fd, KDSETMODE, KD_TEXT)
+                os.close(self._tty_fd)
+                logger.info("VT restored to text mode")
+            except OSError as e:
+                logger.warning("Could not restore VT: %s", e)
+            self._tty_fd = -1
+
+    def present(self, pixel_data: bytes, render_width: int, render_height: int):
+        """
+        Copy rendered pixel data to the framebuffer.
+
+        Handles stride mismatch between the render buffer and the fbdev
+        stride, and clips if render dimensions differ from display.
+        """
+        if not self._fb_mmap:
+            return
+
+        render_stride = render_width * 4  # ARGB32 = 4 bytes per pixel
+        copy_width = min(render_width, self.width) * 4
+        copy_height = min(render_height, self.height)
+
+        if render_stride == self.stride and render_width == self.width:
+            # Fast path: strides match, bulk copy
+            nbytes = min(len(pixel_data), self.fb_size)
+            self._fb_mmap.seek(0)
+            self._fb_mmap.write(pixel_data[:nbytes])
+        else:
+            # Slow path: copy row by row to handle stride difference
+            for y in range(copy_height):
+                src_offset = y * render_stride
+                dst_offset = y * self.stride
+                self._fb_mmap.seek(dst_offset)
+                self._fb_mmap.write(pixel_data[src_offset:src_offset + copy_width])
+
+    def close(self):
+        """Close the fbdev device and restore VT."""
+        self.release_vt()
+        if self._fb_mmap:
+            self._fb_mmap.close()
+            self._fb_mmap = None
+        if self.fd >= 0:
+            os.close(self.fd)
+            self.fd = -1
+        logger.info("fbdev display closed")
+
+
 class DRMRenderer:
     """
-    Renders compositor scene graphs to a DRM framebuffer using Cairo.
+    Renders compositor scene graphs to a display framebuffer using Cairo.
+
+    Supports three backends:
+      - fbdev: Uses /dev/fb0 with fbdev emulation (simplest, works in QEMU)
+      - drm: Uses /dev/dri/card0 with DRM dumb buffers
+      - headless: In-memory rendering for testing/PNG export
 
     Usage:
         renderer = DRMRenderer()
-        renderer.initialize()           # Opens /dev/dri/card0, sets up FB
-        renderer.render(scene_graph)     # Draws a frame
+        renderer.initialize()           # Auto-detects backend
+        renderer.render(scene_graph)     # Draws a frame to internal buffer
+        renderer.present()              # Copies buffer to display
         renderer.shutdown()              # Cleans up
     """
 
@@ -189,65 +383,82 @@ class DRMRenderer:
         self._headless = False
         self._cairo_surface = None
         self._cairo_ctx = None
+        self._display = None  # FBDevDisplay instance
+        self._backend = "headless"  # "fbdev", "drm", or "headless"
 
     @property
     def initialized(self):
-        return self.fd >= 0 or self._headless
+        return self.fd >= 0 or self._headless or self._display is not None
 
     def initialize(self, headless=False, width=1080, height=2340):
         """
-        Initialize the DRM renderer.
+        Initialize the renderer.
 
-        Args:
-            headless: If True, render to an in-memory Cairo surface (no DRM).
-            width: Display width (used in headless mode or if DRM detection fails).
-            height: Display height.
+        Tries backends in order: fbdev -> DRM -> headless.
         """
         if headless:
             return self._init_headless(width, height)
 
-        try:
-            return self._init_drm()
-        except Exception as e:
-            logger.warning(f"DRM init failed ({e}), falling back to headless")
-            return self._init_headless(width, height)
+        # Try fbdev first (simplest, works with QEMU virtio-gpu + fbdev emulation)
+        for fb_path in ["/dev/fb0", "/dev/fb1"]:
+            if os.path.exists(fb_path):
+                try:
+                    return self._init_fbdev(fb_path)
+                except Exception as e:
+                    logger.warning("fbdev init failed for %s: %s", fb_path, e)
 
-    def _init_drm(self):
+        # Try DRM
+        for drm_path in ["/dev/dri/card0", "/dev/dri/card1"]:
+            if os.path.exists(drm_path):
+                try:
+                    return self._init_drm(drm_path)
+                except Exception as e:
+                    logger.warning("DRM init failed for %s: %s", drm_path, e)
+
+        # Fall back to headless
+        logger.warning("No display device found, falling back to headless")
+        return self._init_headless(width, height)
+
+    def _init_fbdev(self, device_path):
+        """Initialize using Linux framebuffer device."""
+        self._display = FBDevDisplay(device_path)
+        self._display.open()
+        self._display.acquire_vt()
+
+        self.width = self._display.width
+        self.height = self._display.height
+        self._backend = "fbdev"
+
+        logger.info("fbdev renderer initialized: %dx%d", self.width, self.height)
+        self._init_cairo_surface()
+
+    def _init_drm(self, device_path=None):
         """Initialize real DRM output."""
-        # Load libdrm
+        device_path = device_path or self.device_path
+
         libdrm_path = ctypes.util.find_library("drm")
         if not libdrm_path:
             raise RuntimeError("libdrm not found — install libdrm-dev")
         self._libdrm = ctypes.CDLL(libdrm_path)
 
-        # Open DRM device
-        self.fd = os.open(self.device_path, os.O_RDWR)
-        logger.info(f"Opened DRM device: {self.device_path}")
-
-        # Get resources
-        res = self._libdrm.drmModeGetResources(self.fd)
-        if not res:
-            raise RuntimeError("drmModeGetResources failed — no display?")
-
-        # Define return types for libdrm functions
+        # Set return types for libdrm functions
         self._libdrm.drmModeGetResources.restype = ctypes.c_void_p
         self._libdrm.drmModeGetConnector.restype = ctypes.c_void_p
         self._libdrm.drmModeGetEncoder.restype = ctypes.c_void_p
         self._libdrm.drmModeGetCrtc.restype = ctypes.c_void_p
 
-        # For simplicity with ctypes, we use the C test program for actual
-        # DRM modesetting. The Python renderer targets Cairo image surfaces
-        # that get blitted to the DRM framebuffer via mmap.
-        #
-        # In production, this will be replaced by wlroots which handles
-        # all DRM modesetting natively.
+        self.fd = os.open(device_path, os.O_RDWR)
+        logger.info("Opened DRM device: %s", device_path)
 
-        # For now, detect display dimensions from DRM
-        # and set up a framebuffer we can render to
-        self.width = 1080  # Default, will be overridden by actual mode
+        res = self._libdrm.drmModeGetResources(self.fd)
+        if not res:
+            raise RuntimeError("drmModeGetResources failed — no display?")
+
+        self.width = 1080
         self.height = 2340
+        self._backend = "drm"
 
-        logger.info(f"DRM renderer initialized: {self.width}x{self.height}")
+        logger.info("DRM renderer initialized: %dx%d", self.width, self.height)
         self._init_cairo_surface()
 
     def _init_headless(self, width, height):
@@ -255,7 +466,8 @@ class DRMRenderer:
         self._headless = True
         self.width = width
         self.height = height
-        logger.info(f"Headless renderer initialized: {width}x{height}")
+        self._backend = "headless"
+        logger.info("Headless renderer initialized: %dx%d", width, height)
         self._init_cairo_surface()
 
     def _init_cairo_surface(self):
@@ -271,12 +483,11 @@ class DRMRenderer:
         except ImportError:
             logger.warning("pycairo not available — using raw pixel rendering")
             self._cairo = None
-            # Allocate raw pixel buffer as fallback
             self._pixel_buffer = bytearray(self.width * self.height * 4)
 
     def render(self, scene_graph):
         """
-        Render a scene graph to the framebuffer.
+        Render a scene graph to the internal buffer.
 
         Args:
             scene_graph: A SceneNode tree from Compositor.build_scene_graph()
@@ -285,6 +496,19 @@ class DRMRenderer:
             self._render_cairo(scene_graph)
         else:
             self._render_raw(scene_graph)
+
+    def present(self):
+        """Copy the rendered frame to the display framebuffer."""
+        if self._backend == "fbdev" and self._display:
+            pixel_data = self.get_pixel_data()
+            if pixel_data:
+                self._display.present(pixel_data, self.width, self.height)
+        elif self._backend == "drm" and self.fb:
+            # Copy Cairo surface to DRM dumb buffer
+            pixel_data = self.get_pixel_data()
+            if pixel_data and self.fb.map:
+                self.fb.map.seek(0)
+                self.fb.map.write(pixel_data[:self.fb.size])
 
     def _render_cairo(self, node):
         """Render scene graph using Cairo."""
@@ -316,7 +540,6 @@ class DRMRenderer:
             r, g, b, a = _parse_hex_color(node.background_color)
 
             if node.corner_radius > 0:
-                # Rounded rectangle
                 self._rounded_rect(ctx, node.x, node.y,
                                    node.width, node.height, node.corner_radius)
                 ctx.set_source_rgba(r, g, b, a)
@@ -342,14 +565,13 @@ class DRMRenderer:
         ctx.restore()
 
     def _render_surface_placeholder(self, ctx, node):
-        """Render a placeholder rectangle for a Wayland surface."""
-        # Until real Wayland clients render pixels, show role-appropriate colors
+        """Render a placeholder rectangle for a surface."""
         role_colors = {
-            "STATUS_BAR": (0.05, 0.05, 0.1, 0.7),    # Dark translucent
-            "KEYBOARD": (0.12, 0.12, 0.15, 0.95),     # Dark opaque
+            "STATUS_BAR": (0.05, 0.05, 0.1, 0.7),
+            "KEYBOARD": (0.12, 0.12, 0.15, 0.95),
             "NOTIFICATION_PANEL": (0.08, 0.08, 0.12, 0.9),
-            "LOCK_SCREEN": (0.1, 0.1, 0.18, 1.0),     # Navy
-            "APP": (0.96, 0.96, 0.95, 1.0),            # Light off-white
+            "LOCK_SCREEN": (0.1, 0.1, 0.18, 1.0),
+            "APP": (0.96, 0.96, 0.95, 1.0),
             "OVERLAY": (0.0, 0.0, 0.0, 0.5),
         }
 
@@ -390,7 +612,7 @@ class DRMRenderer:
         ctx.close_path()
 
     def _render_raw(self, node):
-        """Fallback renderer without Cairo — simple filled rectangles."""
+        """Fallback renderer without Cairo — optimized filled rectangles."""
         buf = self._pixel_buffer
         stride = self.width * 4
 
@@ -407,7 +629,7 @@ class DRMRenderer:
             self._fill_rect_raw(buf, stride, child)
 
     def _fill_rect_raw(self, buf, stride, node):
-        """Fill a rectangle in the raw pixel buffer."""
+        """Fill a rectangle in the raw pixel buffer (optimized row fills)."""
         if node.background_color:
             r, g, b, a = _parse_hex_color(node.background_color)
         elif node.surface:
@@ -415,23 +637,34 @@ class DRMRenderer:
         else:
             return
 
+        x0 = max(0, node.x)
+        y0 = max(0, node.y)
+        x1 = min(self.width, node.x + node.width)
+        y1 = min(self.height, node.y + node.height)
+        rect_w = x1 - x0
+
+        if rect_w <= 0 or y1 <= y0:
+            return
+
         pixel = struct.pack("BBBB", int(b * 255), int(g * 255), int(r * 255), int(a * 255))
-        for y in range(max(0, node.y), min(self.height, node.y + node.height)):
-            for x in range(max(0, node.x), min(self.width, node.x + node.width)):
-                offset = y * stride + x * 4
-                buf[offset:offset + 4] = pixel
+        row = pixel * rect_w
+
+        for y in range(y0, y1):
+            offset = y * stride + x0 * 4
+            buf[offset:offset + rect_w * 4] = row
 
     def save_png(self, path):
         """Save the current frame to a PNG file (requires Cairo)."""
         if self._cairo_surface:
             self._cairo_surface.write_to_png(str(path))
-            logger.info(f"Frame saved to {path}")
+            logger.info("Frame saved to %s", path)
         else:
             logger.warning("PNG export requires Cairo")
 
     def get_pixel_data(self):
         """Return raw ARGB32 pixel data for the current frame."""
         if self._cairo_surface:
+            self._cairo_surface.flush()
             return bytes(self._cairo_surface.get_data())
         elif hasattr(self, "_pixel_buffer"):
             return bytes(self._pixel_buffer)
@@ -444,6 +677,10 @@ class DRMRenderer:
             self._cairo_surface = None
             self._cairo_ctx = None
 
+        if self._display:
+            self._display.close()
+            self._display = None
+
         if self.fb:
             self.fb.destroy()
             self.fb = None
@@ -452,4 +689,4 @@ class DRMRenderer:
             os.close(self.fd)
             self.fd = -1
 
-        logger.info("DRM renderer shut down")
+        logger.info("Renderer shut down (backend=%s)", self._backend)

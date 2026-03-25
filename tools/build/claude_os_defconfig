@@ -80,5 +80,13 @@ BR2_PACKAGE_PIXMAN=y
 # Fonts
 BR2_PACKAGE_DEJAVU=y
 
+# Python graphics bindings
+BR2_PACKAGE_PYTHON_PYCAIRO=y
+
+# Wayland protocol libraries (for future Phase 3+ app windowing)
+BR2_PACKAGE_WAYLAND=y
+BR2_PACKAGE_WAYLAND_PROTOCOLS=y
+BR2_PACKAGE_LIBXKBCOMMON=y
+
 # Firmware for QEMU virtual WiFi
 BR2_PACKAGE_LINUX_FIRMWARE=y

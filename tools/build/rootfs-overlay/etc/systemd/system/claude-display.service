@@ -1,16 +1,22 @@
 [Unit]
 Description=Claude-OS Display Manager
-After=claude-bridge.service
+After=claude-bridge.service systemd-tmpfiles-setup.service
 Wants=claude-bridge.service
+ConditionPathExists=|/dev/fb0
+ConditionPathExists=|/dev/dri/card0
 
 [Service]
 Type=simple
+ExecStartPre=/bin/mkdir -p /run/user/0
 ExecStart=/usr/bin/python3 /opt/claude-os/display-manager/display_manager.py
 Environment=XDG_RUNTIME_DIR=/run/user/0
 Environment=DISPLAY_WIDTH=1080
 Environment=DISPLAY_HEIGHT=2340
 Restart=on-failure
 RestartSec=3
+
+# Give access to display and input devices
+SupplementaryGroups=video input
 
 [Install]
 WantedBy=graphical.target

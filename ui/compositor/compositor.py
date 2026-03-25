@@ -1,14 +1,15 @@
 """
 Claude-OS Wayland Compositor
 
-A minimal Wayland compositor built on wlroots (via pywlroots bindings) designed
-for a mobile phone form factor. The compositor manages:
+A compositor for a mobile phone form factor that renders directly to
+the display via DRM/fbdev. Manages:
 
 - A single fullscreen app at a time (mobile paradigm)
 - System overlays: status bar (top), on-screen keyboard (bottom)
 - Touch gesture handling for navigation
 - Display power management (DPMS)
 - Scene-graph based rendering with theme-aware background
+- Render loop at ~30fps using the DRM renderer
 
 Architecture:
     ┌──────────────────────────────────────────┐
@@ -23,11 +24,19 @@ Architecture:
     ├──────────────────────────────────────────┤
     │        On-Screen Keyboard                │  <- Shown when text input focused
     └──────────────────────────────────────────┘
+
+Display pipeline:
+    Compositor.render_frame() -> SceneNode tree
+        -> DRMRenderer.render(scene) -> Cairo draws to buffer
+            -> DRMRenderer.present() -> copies to /dev/fb0
+                -> Pixels on screen
 """
 
+import json
 import logging
 import os
 import signal
+import socket
 import sys
 import time
 from dataclasses import dataclass, field
@@ -67,8 +76,8 @@ class OutputConfig:
 
 @dataclass
 class Surface:
-    """A managed Wayland surface with render metadata."""
-    wl_surface: object  # wlroots surface handle
+    """A managed surface with render metadata."""
+    wl_surface: object  # surface handle (or placeholder)
     role: SurfaceRole = SurfaceRole.APP
     x: int = 0
     y: int = 0
@@ -101,7 +110,7 @@ class SceneNode:
 
 class Compositor:
     """
-    Claude-OS Wayland compositor with theme-aware rendering.
+    Claude-OS compositor with theme-aware rendering.
 
     Uses the design system tokens for all visual properties including
     status bar height, keyboard dimensions, background colors, blur
@@ -110,6 +119,10 @@ class Compositor:
 
     # Swipe threshold in pixels
     SWIPE_THRESHOLD = 50
+
+    # Render loop target frame time
+    TARGET_FPS = 30
+    FRAME_TIME = 1.0 / TARGET_FPS
 
     def __init__(self, output_config: OutputConfig = None):
         # Import theme for layout metrics
@@ -153,57 +166,101 @@ class Compositor:
         self._on_display_power = None
         self._on_state_change = None
 
-        # Wayland display/backend (set during init)
-        self._wl_display = None
-        self._backend = None
+        # Display backend
         self._renderer = None
-        self._allocator = None
+        self._backend = "stub"  # "fbdev", "drm", or "stub"
+        self._running = False
+
+        # IPC socket for UI component communication
+        self._ipc_socket = None
+        self._ipc_path = None
 
         logger.info("Compositor created: %dx%d @ %.1fx scale",
                      self.config.width, self.config.height, self.config.scale)
 
     def initialize(self):
         """
-        Initialize the Wayland display and wlroots backend.
+        Initialize the display backend and renderer.
 
-        Sets up display socket, renderer, output configuration,
-        and input device handling.
+        Tries fbdev/DRM for real display, falls back to stub.
         """
-        logger.info("Initializing Wayland compositor...")
+        logger.info("Initializing compositor...")
+
+        backend = os.environ.get("CLAUDE_OS_DISPLAY_BACKEND", "auto")
+
+        if backend == "stub":
+            self._init_stub()
+            return
 
         try:
-            self._init_wlroots()
-        except (ImportError, OSError):
-            logger.warning("wlroots not available, using stub backend")
+            self._init_display()
+        except Exception as e:
+            logger.warning("Display init failed (%s), using stub backend", e)
             self._init_stub()
 
-        # Set the Wayland display socket name for clients
-        socket_name = self._get_socket_name()
-        os.environ["WAYLAND_DISPLAY"] = socket_name
-        logger.info("Wayland socket: %s", socket_name)
+    def _init_display(self):
+        """Initialize real display output via DRM renderer."""
+        # Import here to avoid circular imports and allow stub mode
+        # without renderer dependencies
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        from ui.renderer.drm_renderer import DRMRenderer
 
-    def _init_wlroots(self):
-        """Initialize real wlroots backend."""
-        # wlr_backend_autocreate() - picks DRM for real HW, headless for CI
-        # wlr_renderer_autocreate() - GLES2 or Pixman
-        # wlr_allocator_autocreate() - GBM or shm
-        # wl_display_create() - create Wayland display
-        # wlr_xdg_shell_create() - handle app windows
-        # wlr_layer_shell_v1_create() - handle overlays (status bar, keyboard)
-        # wlr_seat_create() - input handling (touch, keyboard)
-        # wlr_output_layout_create() - manage physical displays
-        # wlr_scene_create() - scene graph for compositing
-        raise ImportError("wlroots bindings not yet built")
+        self._renderer = DRMRenderer()
+        self._renderer.initialize(headless=False)
+
+        if not self._renderer.initialized:
+            raise RuntimeError("Renderer failed to initialize")
+
+        # Update config with actual display dimensions
+        if self._renderer.width > 0 and self._renderer.height > 0:
+            actual_w = self._renderer.width
+            actual_h = self._renderer.height
+            if actual_w != self.config.width or actual_h != self.config.height:
+                logger.info("Display resolution: %dx%d (config was %dx%d)",
+                            actual_w, actual_h, self.config.width, self.config.height)
+                self.config.width = actual_w
+                self.config.height = actual_h
+
+        self._backend = self._renderer._backend
+        logger.info("Display backend: %s (%dx%d)",
+                     self._backend, self.config.width, self.config.height)
 
     def _init_stub(self):
         """Initialize stub backend for development/testing."""
-        self._wl_display = "stub"
         self._backend = "stub"
+        self._renderer = None
         logger.info("Running with stub compositor backend")
 
-    def _get_socket_name(self) -> str:
-        """Get or generate the Wayland socket name."""
-        return os.environ.get("WAYLAND_DISPLAY", "wayland-0")
+    def _setup_ipc(self):
+        """
+        Set up IPC socket for UI component communication.
+
+        Creates a Unix domain socket at $XDG_RUNTIME_DIR/claude-compositor
+        that UI components can connect to for registering surfaces, sending
+        input events, etc.
+        """
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/run/user/0")
+        os.makedirs(runtime_dir, exist_ok=True)
+
+        self._ipc_path = os.path.join(runtime_dir, "claude-compositor")
+
+        # Remove stale socket
+        if os.path.exists(self._ipc_path):
+            os.unlink(self._ipc_path)
+
+        self._ipc_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._ipc_socket.bind(self._ipc_path)
+        self._ipc_socket.listen(5)
+        self._ipc_socket.setblocking(False)
+
+        # Also create the wayland-0 marker file so the display manager
+        # knows the compositor is ready
+        wayland_marker = os.path.join(runtime_dir, "wayland-0")
+        with open(wayland_marker, "w") as f:
+            f.write(f"claude-compositor:{os.getpid()}\n")
+
+        logger.info("IPC socket: %s", self._ipc_path)
 
     # --- State Management ---
 
@@ -543,29 +600,108 @@ class Compositor:
             },
         }
 
+    # --- Render Loop ---
+
+    def _render_loop(self):
+        """
+        Main render loop. Runs at TARGET_FPS, building scene graphs
+        and presenting them to the display.
+        """
+        logger.info("Render loop started (%d fps target)", self.TARGET_FPS)
+
+        # Start in HOME state with a placeholder app surface
+        self.set_state(CompositorState.HOME)
+        self.add_surface("statusbar", role=SurfaceRole.STATUS_BAR,
+                         app_id="statusbar")
+        self.add_surface("claude-app", role=SurfaceRole.APP,
+                         app_id="claude-app")
+
+        frame_count = 0
+        fps_timer = time.monotonic()
+
+        while self._running:
+            frame_start = time.monotonic()
+
+            # Build and render the scene
+            scene = self.render_frame()
+            if scene and self._renderer:
+                self._renderer.render(scene)
+                self._renderer.present()
+
+            frame_count += 1
+
+            # Log FPS every 10 seconds
+            elapsed = time.monotonic() - fps_timer
+            if elapsed >= 10.0:
+                fps = frame_count / elapsed
+                logger.info("Render: %.1f fps (%d frames)", fps, frame_count)
+                frame_count = 0
+                fps_timer = time.monotonic()
+
+            # Sleep to maintain target frame rate
+            frame_elapsed = time.monotonic() - frame_start
+            sleep_time = self.FRAME_TIME - frame_elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
+        logger.info("Render loop stopped")
+
     # --- Lifecycle ---
 
     def run(self):
         """
-        Run the compositor event loop.
+        Run the compositor.
 
-        In production, calls wl_display_run() which blocks
-        and processes Wayland events + renders frames.
+        If a display backend is available, runs the render loop.
+        In stub mode, just waits for signals.
         """
-        logger.info("Compositor running")
+        logger.info("Compositor running (backend=%s)", self._backend)
+        self._running = True
 
-        if self._wl_display == "stub":
+        # Set up IPC for UI component communication
+        try:
+            self._setup_ipc()
+        except Exception as e:
+            logger.warning("IPC setup failed: %s", e)
+
+        if self._backend == "stub":
+            # Stub mode: no rendering, just wait
             try:
                 signal.pause()
             except KeyboardInterrupt:
                 pass
         else:
-            pass
+            # Real display: run the render loop
+            try:
+                self._render_loop()
+            except KeyboardInterrupt:
+                logger.info("Interrupted")
+            except Exception as e:
+                logger.error("Render loop error: %s", e, exc_info=True)
 
         logger.info("Compositor stopped")
 
     def destroy(self):
         """Clean up compositor resources."""
+        self._running = False
+
+        # Clean up IPC
+        if self._ipc_socket:
+            self._ipc_socket.close()
+        if self._ipc_path and os.path.exists(self._ipc_path):
+            os.unlink(self._ipc_path)
+
+        # Clean up wayland marker
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/run/user/0")
+        wayland_marker = os.path.join(runtime_dir, "wayland-0")
+        if os.path.exists(wayland_marker):
+            os.unlink(wayland_marker)
+
+        # Shut down renderer
+        if self._renderer:
+            self._renderer.shutdown()
+            self._renderer = None
+
         self.surfaces.clear()
         self.active_surface = None
         logger.info("Compositor destroyed")
